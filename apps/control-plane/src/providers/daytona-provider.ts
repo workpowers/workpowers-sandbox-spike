@@ -58,6 +58,11 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox: DaytonaSandbox = await daytona.create({
       ...(image ? { image } : { language: "typescript" }),
       name: `workpowers-${sessionId}`,
+      resources: {
+        cpu: 2,
+        memory: 4,
+        disk: 20
+      },
       public: true,
       ephemeral: true,
       autoStopInterval: 30,
@@ -70,7 +75,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       envVars: {
         NODE_ENV: "development"
       }
-    });
+    } as never);
 
     const repoDir = "workpowers-live-fork";
 

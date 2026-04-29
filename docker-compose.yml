@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: workpowers
+      POSTGRES_PASSWORD: workpowers
+      POSTGRES_DB: workpowers_live_fork
+    ports:
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workpowers -d workpowers_live_fork"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

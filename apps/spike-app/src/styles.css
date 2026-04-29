@@ -1,0 +1,385 @@
+:root {
+  color: #1c211d;
+  background: #e9ece3;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(28, 33, 29, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(28, 33, 29, 0.04) 1px, transparent 1px),
+    #e9ece3;
+  background-size: 36px 36px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  color: #51604f;
+}
+
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 460px) minmax(280px, 1fr);
+  gap: 28px;
+  min-height: 100vh;
+  align-items: stretch;
+  padding: 28px;
+}
+
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 42px;
+  background: #fbfaf4;
+  border: 1px solid #c9d1bd;
+  border-radius: 8px;
+}
+
+.mark {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  color: #f5f1e5;
+  background: #24443b;
+  border-radius: 8px;
+}
+
+.login-panel h1 {
+  margin: 30px 0 8px;
+  font-family: Georgia, serif;
+  font-size: 58px;
+  line-height: 0.95;
+}
+
+.login-panel p,
+.session-slab span,
+.project-composer span,
+.project-row span,
+.topbar span,
+.metric small {
+  color: #63705e;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 30px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 8px;
+  color: #394238;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.login-form input,
+.project-composer input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  color: #1c211d;
+  background: #fffdf6;
+  border: 1px solid #b9c3ae;
+  border-radius: 6px;
+}
+
+.login-form button,
+.project-composer button {
+  min-height: 46px;
+  color: #f7f3e8;
+  background: #b6472f;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.form-error {
+  color: #9b2f22;
+  font-size: 14px;
+}
+
+.session-slab {
+  display: grid;
+  align-content: end;
+  gap: 14px;
+  padding: 34px;
+  color: #f8f2df;
+  background:
+    linear-gradient(145deg, rgba(183, 71, 47, 0.82), rgba(36, 68, 59, 0.96)),
+    repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255, 255, 255, 0.1) 10px, rgba(255, 255, 255, 0.1) 12px);
+  border-radius: 8px;
+}
+
+.session-slab div {
+  display: grid;
+  gap: 4px;
+  padding: 18px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.session-slab span {
+  color: #f4c56f;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.session-slab strong {
+  font-size: 26px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  min-height: 100vh;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+  color: #f8f2df;
+  background: #1f312d;
+}
+
+.rail-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 28px;
+  font-weight: 900;
+}
+
+.rail button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: #f8f2df;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.rail button.active,
+.rail button:hover {
+  background: rgba(248, 242, 223, 0.11);
+  border-color: rgba(248, 242, 223, 0.16);
+}
+
+.rail-exit {
+  margin-top: auto;
+}
+
+.workspace {
+  min-width: 0;
+  padding: 26px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.topbar h2 {
+  margin: 4px 0 0;
+  font-family: Georgia, serif;
+  font-size: 40px;
+  line-height: 1;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #24443b;
+  background: #d7e3c8;
+  border: 1px solid #b6c6a3;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.metric,
+.activity-panel,
+.project-composer,
+.project-row {
+  background: rgba(251, 250, 244, 0.92);
+  border: 1px solid #c9d1bd;
+  border-radius: 8px;
+}
+
+.metric {
+  display: grid;
+  gap: 12px;
+  min-height: 150px;
+  padding: 20px;
+}
+
+.metric > span {
+  color: #b6472f;
+}
+
+.metric strong {
+  font-size: 24px;
+}
+
+.activity-panel {
+  grid-column: 1 / -1;
+  padding: 22px;
+}
+
+.activity-panel h3,
+.project-composer h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.activity-panel ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 0;
+  margin: 20px 0 0;
+  list-style-position: inside;
+}
+
+.activity-panel li {
+  min-height: 86px;
+  padding: 16px;
+  background: #eef1e7;
+  border-radius: 6px;
+}
+
+.projects-view {
+  display: grid;
+  gap: 16px;
+}
+
+.project-composer {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 420px);
+  gap: 18px;
+  align-items: end;
+  padding: 20px;
+}
+
+.project-composer form {
+  display: grid;
+  grid-template-columns: 1fr 48px;
+  gap: 10px;
+}
+
+.project-composer button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  min-height: 76px;
+  padding: 16px 18px;
+}
+
+.project-row div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-row strong {
+  overflow-wrap: anywhere;
+}
+
+.project-row svg {
+  flex: 0 0 auto;
+  color: #4f7b4d;
+}
+
+@media (max-width: 780px) {
+  .login-shell,
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .login-shell {
+    padding: 14px;
+  }
+
+  .login-panel h1 {
+    font-size: 46px;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 14px;
+  }
+
+  .rail-brand,
+  .rail-exit {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  .dashboard-grid,
+  .activity-panel ol,
+  .project-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

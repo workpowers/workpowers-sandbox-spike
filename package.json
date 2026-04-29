@@ -1,0 +1,49 @@
+{
+  "name": "workpowers-live-fork-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.29.1",
+  "scripts": {
+    "dev": "pnpm dev:control",
+    "dev:control": "tsx apps/control-plane/src/server.ts",
+    "dev:daemon": "tsx apps/session-daemon/src/server.ts",
+    "dev:spike": "vite --config apps/spike-app/vite.config.ts --host 0.0.0.0 --port 3000",
+    "dev:spike-api": "tsx apps/spike-app/server/server.ts",
+    "db:migrate": "tsx apps/spike-app/server/db/migrate.ts",
+    "db:seed": "tsx apps/spike-app/server/db/seed.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "playwright:smoke": "playwright test --config apps/spike-app/playwright.config.ts",
+    "sandbox:demo": "tsx scripts/local-live-fork-demo.ts"
+  },
+  "dependencies": {
+    "@daytonaio/sdk": "^0.169.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "better-auth": "^1.6.9",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "lucide-react": "^0.562.0",
+    "nanoid": "^5.1.6",
+    "pg": "^8.16.3",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.3",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10",
+    "vitest": "^4.0.15"
+  }
+}

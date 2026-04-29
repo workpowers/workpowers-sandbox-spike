@@ -15,6 +15,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "playwright:smoke": "playwright test --config apps/spike-app/playwright.config.ts",
+    "daytona:smoke": "tsx scripts/daytona-smoke.ts",
     "sandbox:demo": "tsx scripts/local-live-fork-demo.ts"
   },
   "dependencies": {

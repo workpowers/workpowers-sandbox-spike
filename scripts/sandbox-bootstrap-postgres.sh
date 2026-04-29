@@ -52,6 +52,21 @@ fi
 
 add_postgres_to_path
 
+if [ "$(id -u)" = "0" ] && command -v pg_ctlcluster >/dev/null 2>&1 && command -v pg_lsclusters >/dev/null 2>&1; then
+  pg_version="$(pg_lsclusters -h | awk 'NR == 1 { print $1 }')"
+  if [ -z "$pg_version" ]; then
+    echo "No packaged Postgres cluster found" >&2
+    exit 1
+  fi
+
+  pg_ctlcluster "$pg_version" main start
+  su postgres -c "psql -tc \"select 1 from pg_roles where rolname = 'workpowers'\" | grep -q 1 || createuser -s workpowers"
+  su postgres -c "psql -c \"alter user workpowers with password 'workpowers'\""
+  su postgres -c "psql -tc \"select 1 from pg_database where datname = 'workpowers_live_fork'\" | grep -q 1 || createdb -O workpowers workpowers_live_fork"
+  echo "Postgres started with packaged cluster"
+  exit 0
+fi
+
 if command -v initdb >/dev/null 2>&1 && command -v pg_ctl >/dev/null 2>&1; then
   pg_root=".sandbox/postgres"
   pg_data="$pg_root/data"

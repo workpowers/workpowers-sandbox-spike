@@ -61,7 +61,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       resources: {
         cpu: 2,
         memory: 4,
-        disk: 20
+        disk: 10
       },
       public: true,
       ephemeral: true,

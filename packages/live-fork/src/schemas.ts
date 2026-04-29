@@ -20,3 +20,15 @@ export const commandSchema = z.object({
   cwd: z.string().optional(),
   timeoutSeconds: z.number().int().positive().max(600).default(60)
 });
+
+export const filePathSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.startsWith("/") && !value.includes(".."), {
+    message: "Path must be relative and stay inside the live fork workdir"
+  });
+
+export const fileWriteSchema = z.object({
+  path: filePathSchema,
+  content: z.string()
+});

@@ -42,13 +42,40 @@ real diff export
 
 ## What It Does Not Prove Yet
 
-- A polished WorkPowers control UI.
 - A warmed Daytona template or warm pool.
 - Production-shaped database snapshotting or database branching.
 - Private repo checkout without making the repo public.
-- Agent interaction through the in-sandbox session daemon.
-- Durable session persistence, TTL cleanup, auth, or multi-tenant isolation.
+- Auth or multi-tenant isolation.
 - PR creation or review workflows.
+
+## Repeatable Session v0 Verification
+
+On 2026-04-29, the next pass verified the repeatable-session machine against Daytona using the image fallback path.
+
+The verified session was:
+
+- Session id: `sess_3YbNP_dxOv`
+- Daytona sandbox id: `e3fc48dc-4db8-408d-9982-21abaecc829e`
+- Repo: `https://github.com/workpowers/workpowers-sandbox-spike.git`
+- Preview URL: Daytona EU proxy for port `3000`
+- Resource profile: 2 CPU, 4 GB memory, 10 GB disk
+- Runtime path: `LIVE_FORK_TEMPLATE_IMAGE=mcr.microsoft.com/playwright:v1.59.1-noble`
+
+What was verified:
+
+- `POST /sessions` returned immediately with a `starting` session.
+- Boot events progressed through `creating_sandbox`, `cloning_repo`, `installing_dependencies`, `starting_daemon`, `starting_database`, `running_migrations`, `seeding_data`, `starting_api`, `starting_frontend`, `checking_health`, and `ready`.
+- The in-sandbox session daemon started and passed health checks.
+- Control-plane file read/write, diff export, and Playwright used daemon endpoints after boot.
+- A sandbox edit changed `Playwright local` to `Playwright Daytona`.
+- `GET /sessions/:id/diff` returned the expected sandbox git diff.
+- The first Playwright run failed after an intentionally breaking heading edit, which proved Playwright saw the edited app. After changing to a non-breaking edit, Playwright passed inside the Daytona sandbox.
+- The separate control UI showed session boot events, preview URL, actions, diff/log controls, and stable session selection.
+
+What remains unverified:
+
+- Warm snapshot creation and snapshot-speed startup. The key used for verification could create sandboxes, but `pnpm daytona:snapshot` returned `403 Access denied`.
+- TTL cleanup against an actually expired Daytona session. The code path is implemented and unit tested, but the live run did not wait for expiry.
 
 ## Key Findings
 
@@ -96,6 +123,30 @@ mcr.microsoft.com/playwright:v1.59.1-noble
 
 That allowed resource requests and also moves us closer to the desired warm-template direction.
 
+### Snapshot creation needs additional Daytona permission
+
+The v0 implementation includes a Daytona snapshot script and Dockerfile for:
+
+```txt
+workpowers-daytona-node-playwright-postgres
+```
+
+The verification key could create and delete Daytona sandboxes, but snapshot creation failed with:
+
+```txt
+DaytonaAuthorizationError: Access denied
+statusCode: 403
+errorCode: Forbidden
+```
+
+Until the key/org has snapshot creation permission, clear `LIVE_FORK_SNAPSHOT_NAME` and use the image fallback:
+
+```txt
+LIVE_FORK_TEMPLATE_IMAGE=mcr.microsoft.com/playwright:v1.59.1-noble
+```
+
+That path is slower, but it verified the real session lifecycle, daemon control path, DB boot, preview, file edits, diff export, and in-sandbox Playwright.
+
 ### Global pnpm/Corepack does not work in the default sandbox user
 
 The default sandbox user could not create Corepack shims in `/usr/bin`:
@@ -123,13 +174,13 @@ The bootstrap script now supports both:
 
 ## Recommended Next Decisions
 
-1. Build a proper Daytona template/snapshot for this stack.
+1. Unblock Daytona snapshot creation for this stack.
 
-   Include Node, pnpm, git, Playwright browsers, Postgres/Postgres client tools, the session daemon, and common package cache. This is the difference between a cool demo and a constant-use product.
+   The implementation artifacts exist, but the current key lacks snapshot creation permission. Once permissions are fixed, run `pnpm daytona:snapshot`, set `LIVE_FORK_SNAPSHOT_NAME=workpowers-daytona-node-playwright-postgres`, and compare startup time against the image fallback.
 
-2. Move control from Daytona process commands to the session daemon.
+2. Keep hardening the session daemon boundary.
 
-   The daemon exists in the repo, but the successful run still used Daytona's process API directly. Next pass should start the daemon and route WorkPowers operations through:
+   The v0 control plane now routes post-bootstrap operations through:
 
    ```txt
    /run-command
@@ -143,19 +194,11 @@ The bootstrap script now supports both:
    /health
    ```
 
-3. Add a tiny WorkPowers control UI.
+   Next, add command policy, stronger path limits, structured process logs, and artifact capture.
 
-   The current visible UI is only the sample forked app. The useful demo should show:
+3. Improve the WorkPowers control UI from demo to operator surface.
 
-   ```txt
-   Start session
-   Preview URL
-   Run Playwright
-   Edit component text
-   Show logs
-   Show diff
-   Stop session
-   ```
+   The tiny control UI exists and was verified, but needs clearer active session state, better empty/error states, one-click logs/diff refresh after actions, and a safer stop confirmation.
 
 4. Decide the private-repo checkout strategy.
 
@@ -170,9 +213,9 @@ The bootstrap script now supports both:
 
    Continue with local sandbox Postgres + seed script until the collaboration loop feels good. Add Neon/Supabase branching only after the Live Fork lifecycle is smooth.
 
-6. Add cleanup and key handling.
+6. Finish cleanup and key handling.
 
-   Persist session records, enforce TTL/idle cleanup, and rotate the Daytona API key used for this spike because it was pasted into chat.
+   Session records now persist in `.workpowers/sessions.json`, and TTL cleanup is implemented. Next, verify TTL cleanup against an expired Daytona session and rotate any keys that were shared outside normal secret channels.
 
 ## Suggested Next Milestone
 

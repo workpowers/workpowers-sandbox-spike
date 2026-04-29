@@ -1,24 +1,54 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { CommandRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
-import { emptyResult, sessionExpiry, type NormalizedCreateSessionRequest, type ProvisionedSession, type SandboxProvider } from "./provider.js";
+import type { CommandRequest, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
+import {
+  daemonGetDiff,
+  daemonGetLogs,
+  daemonReadFile,
+  daemonRunCommand,
+  daemonRunPlaywright,
+  daemonWriteFile
+} from "./daemon-client.js";
+import { emptyResult, type BootEventRecorder, type NormalizedCreateSessionRequest, type ProvisionedSession, type SandboxProvider } from "./provider.js";
 
 const execAsync = promisify(exec);
 
 export class LocalSandboxProvider implements SandboxProvider {
   private readonly workdirs = new Map<string, string>();
 
-  async create(input: NormalizedCreateSessionRequest, sessionId: string): Promise<ProvisionedSession> {
-    const now = new Date().toISOString();
+  resourceProfile() {
+    return {
+      cpu: 0,
+      memoryGb: 0,
+      diskGb: 0,
+      source: "local" as const
+    };
+  }
+
+  async create(input: NormalizedCreateSessionRequest, session: LiveForkSession, record: BootEventRecorder): Promise<ProvisionedSession> {
     const workdir = process.env.LIVE_FORK_REPO_DIR ?? process.cwd();
-    const session: LiveForkSession = {
-      id: sessionId,
+    const daemonUrl = process.env.LIVE_FORK_DAEMON_URL ?? "http://localhost:8790";
+
+    await record("creating_sandbox", "completed", "Using the local workspace as the sandbox stand-in");
+    await record("starting_daemon", "running", "Checking local session daemon");
+
+    const daemonHealth = await fetch(`${daemonUrl}/health`).catch(() => undefined);
+    if (!daemonHealth?.ok) {
+      await record("starting_daemon", "failed", `Local session daemon is not reachable at ${daemonUrl}`);
+      throw new Error(`Local session daemon is not reachable at ${daemonUrl}`);
+    }
+
+    await record("starting_daemon", "completed", "Local session daemon is reachable");
+    await record("ready", "completed", "Local live fork session is ready");
+
+    const readySession: LiveForkSession = {
+      ...session,
       repoUrl: input.repoUrl,
       ref: input.ref,
       branchName: input.branchName,
       sandbox: {
-        provider: "daytona",
-        sandboxId: `local-${sessionId}`,
+        provider: "local",
+        sandboxId: `local-${session.id}`,
         status: "running"
       },
       app: {
@@ -32,25 +62,27 @@ export class LocalSandboxProvider implements SandboxProvider {
         seedName: input.data.seedName ?? "basic-projects",
         resettable: true
       },
-      lifecycle: {
-        createdAt: now,
-        expiresAt: sessionExpiry(120),
-        idleTimeoutMinutes: 30,
-        maxLifetimeMinutes: 120
-      },
+      lifecycle: session.lifecycle,
+      resourceProfile: this.resourceProfile(),
       artifacts: {
         logs: [
           "Local provider claimed this workspace as the sandbox stand-in.",
           "Run `pnpm db:migrate && pnpm db:seed`, `pnpm dev:spike-api`, and `pnpm dev:spike` to serve the app locally."
         ]
+      },
+      internal: {
+        workdir,
+        daemonUrl
       }
     };
 
-    this.workdirs.set(session.id, workdir);
-    return { session, workdir };
+    this.workdirs.set(readySession.id, workdir);
+    return { session: readySession, workdir };
   }
 
   async runCommand(session: LiveForkSession, command: CommandRequest) {
+    if (session.internal?.daemonUrl) return daemonRunCommand(session, command);
+
     const cwd = command.cwd ?? this.workdirs.get(session.id) ?? process.cwd();
 
     try {
@@ -68,15 +100,29 @@ export class LocalSandboxProvider implements SandboxProvider {
   }
 
   async getLogs(session: LiveForkSession) {
+    if (session.internal?.daemonUrl) return daemonGetLogs(session);
     return session.artifacts.logs ?? [];
   }
 
   async getDiff(session: LiveForkSession) {
+    if (session.internal?.daemonUrl) return daemonGetDiff(session);
     const result = await this.runCommand(session, {
       command: "git diff -- . && git ls-files --others --exclude-standard | sed 's/^/?? /'",
       timeoutSeconds: 30
     });
     return result.stdout || result.stderr;
+  }
+
+  async runPlaywright(session: LiveForkSession) {
+    return daemonRunPlaywright(session);
+  }
+
+  async readFile(session: LiveForkSession, path: string) {
+    return daemonReadFile(session, path);
+  }
+
+  async writeFile(session: LiveForkSession, input: FileWriteRequest) {
+    return daemonWriteFile(session, input);
   }
 
   async stop() {

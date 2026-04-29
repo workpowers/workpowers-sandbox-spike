@@ -71,15 +71,20 @@ Important implementation details from the run:
 - Image-based sandboxes allowed resource requests. The successful run used `mcr.microsoft.com/playwright:v1.59.1-noble`, 2 CPU, 4 GB memory, and 10 GB disk.
 - Daytona rejected 20 GB disk under the current org limit.
 - The sandbox bootstrap needs to handle both non-root default sandboxes and root image-based sandboxes.
-- The session daemon exists but was not yet used as the command path; the control plane still called Daytona's process API directly.
+- The original spike used Daytona's process API directly. The repeatable-session v0 now routes post-bootstrap commands, logs, file IO, diff export, and Playwright through the session daemon.
 
-## Next Hardening Pass
+## Repeatable Session v0
 
-- Replace in-memory session state with durable storage.
-- Move `pnpm install` and `playwright install` into a Daytona template image.
-- Replace command strings with a small in-sandbox daemon client.
-- Store preview auth token metadata separately from the public API response when using private previews.
-- Add TTL cleanup and idle timeout enforcement.
-- Add a managed database branch/snapshot mode after the local seed mode is proven.
-- Add private repo checkout through GitHub App tokens or short-lived deploy credentials.
-- Add a small WorkPowers control UI so the proof is visible without reading logs.
+- Session records are stored in `.workpowers/sessions.json` and reconciled on control-plane startup.
+- `POST /sessions` is asynchronous and records boot phases from sandbox creation through `ready` or `failed`.
+- Public session responses are redacted so preview tokens and daemon URLs stay internal.
+- The control plane uses the session daemon for commands, file reads/writes, logs, diffs, and Playwright once bootstrapping completes.
+- TTL cleanup stops expired active sessions and marks them stopped.
+- The `apps/control-ui` Vite app provides the smallest visible loop: start, inspect phases, preview, read/write a file, run Playwright, show logs, show diff, and stop.
+
+## Still Deferred
+
+- Private repo checkout through GitHub App tokens or short-lived deploy credentials.
+- Managed database branch/snapshot modes such as Neon, Supabase, or snapshot restore.
+- Warm pool preclaiming.
+- Auth, multi-tenant isolation, PR creation, and review workflows.

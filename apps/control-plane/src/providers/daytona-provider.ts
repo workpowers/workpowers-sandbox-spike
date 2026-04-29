@@ -89,13 +89,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         repoDir,
         10
       );
-      await checkedCommand(sandbox, "corepack enable && corepack prepare pnpm@10.29.1 --activate", repoDir, 180);
-      await checkedCommand(sandbox, "pnpm install", repoDir, 900);
+      const pnpm = "npx --yes pnpm@10.29.1";
+      await checkedCommand(sandbox, `${pnpm} install`, repoDir, 900);
       await checkedCommand(sandbox, "bash scripts/sandbox-bootstrap-postgres.sh", repoDir, 600);
-      await checkedCommand(sandbox, "pnpm db:migrate && pnpm db:seed", repoDir, 300);
-      await checkedCommand(sandbox, "pnpm exec playwright install chromium", repoDir, 600);
-      await checkedCommand(sandbox, "nohup pnpm dev:spike-api > /tmp/workpowers-api.log 2>&1 &", repoDir, 10);
-      await checkedCommand(sandbox, "nohup pnpm dev:spike > /tmp/workpowers-vite.log 2>&1 &", repoDir, 10);
+      await checkedCommand(sandbox, `${pnpm} db:migrate && ${pnpm} db:seed`, repoDir, 300);
+      await checkedCommand(sandbox, `${pnpm} exec playwright install chromium`, repoDir, 600);
+      await checkedCommand(sandbox, `nohup ${pnpm} dev:spike-api > /tmp/workpowers-api.log 2>&1 &`, repoDir, 10);
+      await checkedCommand(sandbox, `nohup ${pnpm} dev:spike > /tmp/workpowers-vite.log 2>&1 &`, repoDir, 10);
       await checkedCommand(
         sandbox,
         [

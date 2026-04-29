@@ -30,6 +30,23 @@ function normalizeResult(result: Awaited<ReturnType<DaytonaSandbox["process"]["e
   );
 }
 
+async function checkedCommand(sandbox: DaytonaSandbox, command: string, cwd?: string, timeoutSeconds = 60) {
+  const result = normalizeResult(await sandbox.process.executeCommand(command, cwd, undefined, timeoutSeconds));
+  if (result.exitCode !== 0) {
+    throw new Error(
+      [
+        `Daytona setup command failed with exit code ${result.exitCode}`,
+        `$ ${command}`,
+        result.stdout,
+        result.stderr
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
+  return result;
+}
+
 export class DaytonaSandboxProvider implements SandboxProvider {
   private readonly sandboxes = new Map<string, DaytonaSandbox>();
   private readonly workdirs = new Map<string, string>();
@@ -56,27 +73,46 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     });
 
     const repoDir = "workpowers-live-fork";
-    await sandbox.process.executeCommand(`git clone ${shellQuote(input.repoUrl)} ${shellQuote(repoDir)}`, undefined, undefined, 600);
-    await sandbox.process.executeCommand(`git checkout ${shellQuote(input.ref)}`, repoDir, undefined, 120);
-    await sandbox.process.executeCommand(
-      [
-        "cat > .env <<'EOF'",
-        "DATABASE_URL=postgres://workpowers:workpowers@localhost:5432/workpowers_live_fork",
-        "BETTER_AUTH_SECRET=dev-secret-dev-secret-dev-secret-dev-secret",
-        "BETTER_AUTH_URL=http://localhost:3001",
-        "EOF"
-      ].join("\n"),
-      repoDir,
-      undefined,
-      10
-    );
-    await sandbox.process.executeCommand("corepack enable && corepack prepare pnpm@10.29.1 --activate", repoDir, undefined, 180);
-    await sandbox.process.executeCommand("pnpm install", repoDir, undefined, 900);
-    await sandbox.process.executeCommand("bash scripts/sandbox-bootstrap-postgres.sh", repoDir, undefined, 300);
-    await sandbox.process.executeCommand("pnpm db:migrate && pnpm db:seed", repoDir, undefined, 300);
-    await sandbox.process.executeCommand("nohup pnpm dev:spike-api > /tmp/workpowers-api.log 2>&1 &", repoDir, undefined, 10);
-    await sandbox.process.executeCommand("nohup pnpm dev:spike > /tmp/workpowers-vite.log 2>&1 &", repoDir, undefined, 10);
-    await sandbox.process.executeCommand("pnpm exec playwright install chromium", repoDir, undefined, 600);
+
+    try {
+      await checkedCommand(sandbox, `git clone ${shellQuote(input.repoUrl)} ${shellQuote(repoDir)}`, undefined, 600);
+      await checkedCommand(sandbox, `git checkout ${shellQuote(input.ref)}`, repoDir, 120);
+      await checkedCommand(
+        sandbox,
+        [
+          "cat > .env <<'EOF'",
+          "DATABASE_URL=postgres://workpowers:workpowers@localhost:5432/workpowers_live_fork",
+          "BETTER_AUTH_SECRET=dev-secret-dev-secret-dev-secret-dev-secret",
+          "BETTER_AUTH_URL=http://localhost:3001",
+          "EOF"
+        ].join("\n"),
+        repoDir,
+        10
+      );
+      await checkedCommand(sandbox, "corepack enable && corepack prepare pnpm@10.29.1 --activate", repoDir, 180);
+      await checkedCommand(sandbox, "pnpm install", repoDir, 900);
+      await checkedCommand(sandbox, "bash scripts/sandbox-bootstrap-postgres.sh", repoDir, 600);
+      await checkedCommand(sandbox, "pnpm db:migrate && pnpm db:seed", repoDir, 300);
+      await checkedCommand(sandbox, "pnpm exec playwright install chromium", repoDir, 600);
+      await checkedCommand(sandbox, "nohup pnpm dev:spike-api > /tmp/workpowers-api.log 2>&1 &", repoDir, 10);
+      await checkedCommand(sandbox, "nohup pnpm dev:spike > /tmp/workpowers-vite.log 2>&1 &", repoDir, 10);
+      await checkedCommand(
+        sandbox,
+        [
+          "for i in $(seq 1 60); do",
+          "  curl -fsS http://localhost:3001/health >/dev/null && curl -fsS http://localhost:3000 >/dev/null && exit 0",
+          "  sleep 2",
+          "done",
+          "cat /tmp/workpowers-api.log /tmp/workpowers-vite.log 2>/dev/null || true",
+          "exit 1"
+        ].join("\n"),
+        repoDir,
+        130
+      );
+    } catch (error) {
+      await sandbox.delete(120).catch(() => undefined);
+      throw error;
+    }
 
     const preview = sandbox.getSignedPreviewUrl
       ? await sandbox.getSignedPreviewUrl(3000, 60 * 60)

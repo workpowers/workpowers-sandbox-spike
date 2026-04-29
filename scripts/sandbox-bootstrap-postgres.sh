@@ -63,10 +63,14 @@ if command -v initdb >/dev/null 2>&1 && command -v pg_ctl >/dev/null 2>&1; then
     {
       echo "listen_addresses = '127.0.0.1'"
       echo "port = 5432"
+      echo "unix_socket_directories = '/tmp'"
     } >> "$pg_data/postgresql.conf"
   fi
 
-  pg_ctl -D "$pg_data" -l "$pg_log" start
+  if ! pg_ctl -D "$pg_data" -l "$pg_log" start; then
+    cat "$pg_log" >&2 || true
+    exit 1
+  fi
   until pg_isready -h 127.0.0.1 -p 5432 -U workpowers >/dev/null 2>&1; do
     sleep 1
   done

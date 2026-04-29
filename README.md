@@ -55,9 +55,10 @@ Set these environment variables before starting the control plane:
 LIVE_FORK_PROVIDER=daytona
 DAYTONA_API_KEY=...
 DAYTONA_API_URL=https://app.daytona.io/api
-DAYTONA_TARGET=us
-LIVE_FORK_TEMPLATE_IMAGE=
+LIVE_FORK_TEMPLATE_IMAGE=mcr.microsoft.com/playwright:v1.59.1-noble
 ```
+
+Do not set `DAYTONA_TARGET=us` for the WorkPowers EU org. Let Daytona use the org default region, or set the correct EU target once the exact target id is known.
 
 Then call `POST /sessions` with a real Git repository URL. The Daytona provider:
 
@@ -71,6 +72,23 @@ Then call `POST /sessions` with a real Git repository URL. The Daytona provider:
 8. returns a signed preview URL for port `3000`.
 
 The app and Playwright use `http://localhost:3000` inside the sandbox. The human opens the returned Daytona preview URL.
+
+### Verified Daytona Spike
+
+On 2026-04-29, the spike successfully proved the end-to-end loop with a real Daytona sandbox:
+
+- repo cloned from `https://github.com/workpowers/workpowers-sandbox-spike.git`
+- app served through a Daytona preview URL for port `3000`
+- API served internally on `localhost:3001`
+- Postgres ran inside the sandbox with seeded auth/project data
+- Playwright ran inside the sandbox against `http://localhost:3000`
+- a React file was edited inside the sandbox
+- Vite hot reloaded the preview
+- the control plane exported the sandbox git diff
+
+The successful cold run used `LIVE_FORK_TEMPLATE_IMAGE=mcr.microsoft.com/playwright:v1.59.1-noble` with 2 CPU, 4 GB memory, and 10 GB disk. Daytona rejected 20 GB disk for the current org limit.
+
+See [docs/planner-handoff.md](docs/planner-handoff.md) for findings and recommended next steps.
 
 ## Control Plane API
 
@@ -100,3 +118,5 @@ POST /run-playwright
 ## Template/Warm Pool Notes
 
 The cold path should bake in Node, pnpm, Playwright browsers, Postgres, and common system packages. The hot path should only claim/start a warm sandbox, checkout code, inject env, run migrations/seeds, and start the app processes.
+
+The current cold path intentionally still installs dependencies and Postgres at session creation time. That is acceptable for the proof, but not for the intended constant-use experience.

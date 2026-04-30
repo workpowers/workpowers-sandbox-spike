@@ -2,6 +2,8 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import { nanoid } from "nanoid";
+import { GITHUB_APP_CREDENTIAL_REF, assertOrganizationMembership, resolveGitHubRepoAccess } from "../../spike-app/server/github-app.js";
+import { redactCommandResult, redactSecrets } from "../../../packages/live-fork/src/redaction.js";
 import { commandSchema, createSessionSchema, filePathSchema, fileWriteSchema } from "../../../packages/live-fork/src/schemas.js";
 import { LiveForkSessionStore, redactSession } from "../../../packages/live-fork/src/session-store.js";
 import type { LiveForkSession } from "../../../packages/live-fork/src/types.js";
@@ -65,7 +67,7 @@ async function provisionInBackground(session: LiveForkSession, input: Normalized
       internal: provisioned.session.internal
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = redactSecrets(error instanceof Error ? error.message : String(error));
     await store.recordBootPhase(session.id, "failed", "failed", message);
   }
 }
@@ -107,17 +109,34 @@ app.get("/health", (_req, res) => {
 app.post("/sessions", async (req, res, next) => {
   try {
     const input = createSessionSchema.parse(req.body);
+    const repoAccess =
+      input.credentialRef === GITHUB_APP_CREDENTIAL_REF
+        ? await resolveOrgGitHubRepoAccess(input)
+        : undefined;
     const sessionId = `sess_${nanoid(10)}`;
-    const session = createStartingSession(input, sessionId, provider);
+    const normalizedInput = { ...input, repoAccess };
+    const session = createStartingSession(normalizedInput, sessionId, provider);
     await store.set(session);
 
-    void provisionInBackground(session, input);
+    void provisionInBackground(session, normalizedInput);
 
     res.status(202).json(sessionSummary(session));
   } catch (error) {
     next(error);
   }
 });
+
+async function resolveOrgGitHubRepoAccess(input: NormalizedCreateSessionRequest) {
+  if (!input.organizationId || !input.userId) {
+    throw new Error("organizationId and userId are required when credentialRef is org:github-app.");
+  }
+
+  await assertOrganizationMembership(input.userId, input.organizationId);
+  return resolveGitHubRepoAccess({
+    organizationId: input.organizationId,
+    repo: input.repoUrl
+  });
+}
 
 app.get("/sessions", (_req, res) => {
   res.json({ sessions: store.listPublic() });
@@ -142,10 +161,10 @@ app.post("/sessions/:id/command", async (req, res, next) => {
     if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
 
     const command = commandSchema.parse(req.body);
-    const result = await provider.runCommand(session, command);
+    const result = redactCommandResult(await provider.runCommand(session, command));
     await store.update(session.id, {
       artifacts: {
-        logs: [...(session.artifacts.logs ?? []), `$ ${command.command}`, result.stdout, result.stderr].filter(Boolean)
+        logs: [...(session.artifacts.logs ?? []), `$ ${redactSecrets(command.command)}`, result.stdout, result.stderr].filter(Boolean)
       }
     });
     return res.json(result);
@@ -160,7 +179,7 @@ app.post("/sessions/:id/playwright", async (req, res, next) => {
     if (!session) return res.status(404).json({ error: "session_not_found" });
     if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
 
-    const result = await provider.runPlaywright(session);
+    const result = redactCommandResult(await provider.runPlaywright(session));
     await recordLifecycleEvent(session.id, `Playwright finished with exit code ${result.exitCode}`);
     return res.json(result);
   } catch (error) {
@@ -188,7 +207,7 @@ app.get("/sessions/:id/diff", async (req, res, next) => {
     if (!session) return res.status(404).json({ error: "session_not_found" });
     if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
 
-    const gitDiff = await provider.getDiff(session);
+    const gitDiff = redactSecrets(await provider.getDiff(session));
     await store.update(session.id, { artifacts: { gitDiff } });
     return res.type("text/plain").send(gitDiff);
   } catch (error) {
@@ -248,7 +267,7 @@ app.post("/sessions/:id/stop", async (req, res, next) => {
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = redactSecrets(error instanceof Error ? error.message : String(error));
   res.status(400).json({ error: "request_failed", message });
 });
 

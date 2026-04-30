@@ -1,3 +1,4 @@
+import { redactCommandResult, redactSecrets } from "../../../../packages/live-fork/src/redaction.js";
 import type { CommandRequest, CommandResult, FileReadResult, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
 
 function requireDaemonUrl(session: LiveForkSession) {
@@ -18,7 +19,7 @@ async function parseCommandResponse(response: Response): Promise<CommandResult> 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
-    const body = await response.text();
+    const body = redactSecrets(await response.text());
     throw new Error(`Daemon request failed (${response.status}): ${body}`);
   }
   return (await response.json()) as T;
@@ -30,32 +31,32 @@ export async function daemonRunCommand(session: LiveForkSession, command: Comman
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(command)
   });
-  if (!response.ok) throw new Error(`Daemon command failed (${response.status}): ${await response.text()}`);
-  return parseCommandResponse(response);
+  if (!response.ok) throw new Error(`Daemon command failed (${response.status}): ${redactSecrets(await response.text())}`);
+  return redactCommandResult(await parseCommandResponse(response));
 }
 
 export async function daemonRunPlaywright(session: LiveForkSession) {
   const response = await fetch(`${requireDaemonUrl(session)}/run-playwright`, {
     method: "POST"
   });
-  if (!response.ok) throw new Error(`Daemon Playwright request failed (${response.status}): ${await response.text()}`);
-  return parseCommandResponse(response);
+  if (!response.ok) throw new Error(`Daemon Playwright request failed (${response.status}): ${redactSecrets(await response.text())}`);
+  return redactCommandResult(await parseCommandResponse(response));
 }
 
 export async function daemonGetLogs(session: LiveForkSession) {
   const json = await requestJson<{ logs: string[] }>(`${requireDaemonUrl(session)}/logs`);
-  return json.logs;
+  return json.logs.map((log) => redactSecrets(log));
 }
 
 export async function daemonGetDiff(session: LiveForkSession) {
   const response = await fetch(`${requireDaemonUrl(session)}/git-diff`);
-  if (!response.ok) throw new Error(`Daemon diff request failed (${response.status}): ${await response.text()}`);
-  return response.text();
+  if (!response.ok) throw new Error(`Daemon diff request failed (${response.status}): ${redactSecrets(await response.text())}`);
+  return redactSecrets(await response.text());
 }
 
 export async function daemonReadFile(session: LiveForkSession, filePath: string): Promise<FileReadResult> {
   const response = await fetch(`${requireDaemonUrl(session)}/read-file?path=${encodeURIComponent(filePath)}`);
-  if (!response.ok) throw new Error(`Daemon read-file request failed (${response.status}): ${await response.text()}`);
+  if (!response.ok) throw new Error(`Daemon read-file request failed (${response.status}): ${redactSecrets(await response.text())}`);
   return {
     path: filePath,
     content: await response.text()

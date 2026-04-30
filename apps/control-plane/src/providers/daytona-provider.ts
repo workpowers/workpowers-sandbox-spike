@@ -1,4 +1,5 @@
 import type { CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams } from "@daytonaio/sdk";
+import { redactCommandResult, redactSecrets } from "../../../../packages/live-fork/src/redaction.js";
 import type { CommandRequest, CommandResult, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
 import {
   daemonGetDiff,
@@ -31,21 +32,34 @@ function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function normalizeResult(result: Awaited<ReturnType<DaytonaSandbox["process"]["executeCommand"]>>): CommandResult {
-  return emptyResult(
+function normalizeResult(
+  result: Awaited<ReturnType<DaytonaSandbox["process"]["executeCommand"]>>,
+  secrets: string[] = []
+): CommandResult {
+  return redactCommandResult(
+    emptyResult(
     result.exitCode ?? 0,
     result.stdout ?? result.result ?? result.artifacts?.stdout ?? "",
     result.stderr ?? ""
+    ),
+    secrets
   );
 }
 
-async function checkedCommand(sandbox: DaytonaSandbox, command: string, cwd?: string, timeoutSeconds = 60) {
-  const result = normalizeResult(await sandbox.process.executeCommand(command, cwd, undefined, timeoutSeconds));
+async function checkedCommand(
+  sandbox: DaytonaSandbox,
+  command: string,
+  cwd?: string,
+  timeoutSeconds = 60,
+  env?: Record<string, string>,
+  secrets: string[] = []
+) {
+  const result = normalizeResult(await sandbox.process.executeCommand(command, cwd, env, timeoutSeconds), secrets);
   if (result.exitCode !== 0) {
     throw new Error(
       [
         `Daytona setup command failed with exit code ${result.exitCode}`,
-        `$ ${command}`,
+        `$ ${redactSecrets(command, secrets)}`,
         result.stdout,
         result.stderr
       ]
@@ -54,6 +68,26 @@ async function checkedCommand(sandbox: DaytonaSandbox, command: string, cwd?: st
     );
   }
   return result;
+}
+
+function cloneCommand(repoUrl: string, repoDir: string, token?: string) {
+  if (!token) return `git clone ${shellQuote(repoUrl)} ${shellQuote(repoDir)}`;
+
+  return [
+    "set -e",
+    "askpass=$(mktemp)",
+    "cat > \"$askpass\" <<'EOF'",
+    "#!/bin/sh",
+    "case \"$1\" in",
+    "*Username*) echo x-access-token ;;",
+    "*Password*) printf '%s\\n' \"$GITHUB_APP_INSTALLATION_TOKEN\" ;;",
+    "*) echo ;;",
+    "esac",
+    "EOF",
+    "chmod 700 \"$askpass\"",
+    `GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$askpass" git clone ${shellQuote(repoUrl)} ${shellQuote(repoDir)}`,
+    "rm -f \"$askpass\""
+  ].join("\n");
 }
 
 export class DaytonaSandboxProvider implements SandboxProvider {
@@ -113,7 +147,17 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     try {
       await record("creating_sandbox", "completed", `Daytona sandbox ${sandbox.id} created`);
       await record("cloning_repo", "running", "Cloning repository into the sandbox");
-      await checkedCommand(sandbox, `git clone ${shellQuote(input.repoUrl)} ${shellQuote(repoDir)}`, undefined, 600);
+      const cloneUrl = input.repoAccess?.cloneUrl ?? input.repoUrl;
+      const cloneSecrets = input.repoAccess?.token ? [input.repoAccess.token] : [];
+      await checkedCommand(
+        sandbox,
+        cloneCommand(cloneUrl, repoDir, input.repoAccess?.token),
+        undefined,
+        600,
+        input.repoAccess?.token ? { GITHUB_APP_INSTALLATION_TOKEN: input.repoAccess.token } : undefined,
+        cloneSecrets
+      );
+      await checkedCommand(sandbox, `git remote set-url origin ${shellQuote(cloneUrl)}`, repoDir, 30, undefined, cloneSecrets);
       await record("cloning_repo", "completed", "Repository cloned");
       await checkedCommand(sandbox, `git checkout ${shellQuote(input.ref)}`, repoDir, 120);
       await checkedCommand(

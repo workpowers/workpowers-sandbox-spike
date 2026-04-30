@@ -5,6 +5,9 @@ export const createSessionSchema = z.object({
   ref: z.string().default("main"),
   branchName: z.string().optional(),
   template: z.string().default("node-pnpm-playwright-postgres"),
+  organizationId: z.string().min(1).optional(),
+  userId: z.string().min(1).optional(),
+  credentialRef: z.literal("org:github-app").optional(),
   data: z
     .object({
       mode: z

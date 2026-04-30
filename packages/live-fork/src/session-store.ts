@@ -6,6 +6,7 @@ import type {
   LiveForkBootPhase,
   LiveForkSession
 } from "./types.js";
+import { redactSecrets } from "./redaction.js";
 
 type LiveForkSessionPatch = Partial<
   Omit<LiveForkSession, "sandbox" | "app" | "boot" | "data" | "lifecycle" | "resourceProfile" | "artifacts" | "internal">
@@ -107,6 +108,7 @@ export class LiveForkSessionStore {
 
     const nextEvent = {
       ...event,
+      message: redactSecrets(event.message),
       timestamp: event.timestamp ?? new Date().toISOString()
     };
 
@@ -179,7 +181,7 @@ export class LiveForkSessionStore {
 
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;
-    const payload = JSON.stringify({ sessions: this.list() } satisfies SessionStoreFile, null, 2);
+    const payload = JSON.stringify({ sessions: this.list().map(redactSessionSecrets) } satisfies SessionStoreFile, null, 2);
     await fs.writeFile(tmpPath, `${payload}\n`);
     await fs.rename(tmpPath, this.filePath);
   }
@@ -188,5 +190,25 @@ export class LiveForkSessionStore {
 export function redactSession(session: LiveForkSession): RedactedLiveForkSession {
   const { previewToken: _previewToken, ...app } = session.app;
   const { internal: _internal, ...rest } = session;
-  return { ...rest, app };
+  return redactSessionSecrets({ ...rest, app });
+}
+
+function redactSessionSecrets<T extends Omit<LiveForkSession, "internal"> | LiveForkSession>(session: T): T {
+  return {
+    ...session,
+    repoUrl: redactSecrets(session.repoUrl),
+    boot: {
+      ...session.boot,
+      error: session.boot.error ? redactSecrets(session.boot.error) : undefined,
+      events: session.boot.events.map((event) => ({
+        ...event,
+        message: redactSecrets(event.message)
+      }))
+    },
+    artifacts: {
+      ...session.artifacts,
+      gitDiff: session.artifacts.gitDiff ? redactSecrets(session.artifacts.gitDiff) : undefined,
+      logs: session.artifacts.logs?.map((log) => redactSecrets(log))
+    }
+  };
 }

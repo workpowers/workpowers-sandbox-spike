@@ -100,6 +100,37 @@ describe("live fork session primitives", () => {
     expect(reader.get("sess_test")?.repoUrl).toContain("github.com");
   });
 
+  it("redacts token-shaped values before persisting sessions", async () => {
+    const token = "ghs_abcdefghijklmnopqrstuvwxyz1234567890";
+    const filePath = await storePath();
+    const writer = new LiveForkSessionStore({ filePath });
+
+    await writer.set(
+      session({
+        repoUrl: `https://x-access-token:${token}@github.com/workpowers/live-fork-spike.git`,
+        boot: {
+          phase: "failed",
+          error: `clone failed for ${token}`,
+          events: [
+            {
+              phase: "cloning_repo",
+              status: "failed",
+              message: `fatal: ${token}`,
+              timestamp: new Date(0).toISOString()
+            }
+          ]
+        },
+        artifacts: {
+          logs: [`Authorization: Bearer ${token}`]
+        }
+      })
+    );
+
+    const raw = await readFile(filePath, "utf8");
+    expect(raw).not.toContain(token);
+    expect(raw).toContain("[REDACTED]");
+  });
+
   it("records boot events in order and updates the active phase", async () => {
     const store = new LiveForkSessionStore({ persist: false });
     await store.set(session({ boot: { phase: "creating_sandbox", events: [] } }));

@@ -9,7 +9,7 @@
     "dev:control": "tsx apps/control-plane/src/server.ts",
     "dev:control-ui": "vite --config apps/control-ui/vite.config.ts --host 0.0.0.0 --port 5173",
     "dev:daemon": "tsx apps/session-daemon/src/server.ts",
-    "dev:spike": "vite --config apps/spike-app/vite.config.ts --host 0.0.0.0 --port 3000",
+    "dev:spike": "vite --config apps/spike-app/vite.config.ts --host 0.0.0.0",
     "dev:spike-api": "tsx apps/spike-app/server/server.ts",
     "db:migrate": "tsx apps/spike-app/server/db/migrate.ts",
     "db:seed": "tsx apps/spike-app/server/db/seed.ts",

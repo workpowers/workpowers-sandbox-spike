@@ -18,6 +18,12 @@ export type NormalizedCreateSessionRequest = CreateSessionRequest & {
     mode: LiveForkDataMode;
     seedName: string;
   };
+  repoAccess?: {
+    credentialRef: "org:github-app";
+    cloneUrl: string;
+    token: string;
+    tokenExpiresAt: string;
+  };
 };
 
 export type ProvisionedSession = {

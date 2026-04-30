@@ -92,6 +92,9 @@ export type CreateSessionRequest = {
   ref?: string;
   branchName?: string;
   template?: string;
+  organizationId?: string;
+  userId?: string;
+  credentialRef?: "org:github-app";
   data?: {
     mode?: LiveForkDataMode;
     seedName?: string;

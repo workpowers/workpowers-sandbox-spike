@@ -108,7 +108,10 @@ button {
 }
 
 .login-form button,
-.project-composer button {
+.project-composer button,
+.manual-sync button,
+.github-actions button,
+.button-link {
   min-height: 46px;
   color: #f7f3e8;
   background: #b6472f;
@@ -219,6 +222,13 @@ button {
   line-height: 1;
 }
 
+.topbar small {
+  display: block;
+  margin-top: 8px;
+  color: #63705e;
+  font-weight: 800;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -294,6 +304,11 @@ button {
   gap: 16px;
 }
 
+.github-view {
+  display: grid;
+  gap: 16px;
+}
+
 .project-composer {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(260px, 420px);
@@ -312,6 +327,101 @@ button {
   display: grid;
   place-items: center;
   width: 48px;
+}
+
+.github-setup {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 20px;
+  background: rgba(251, 250, 244, 0.92);
+  border: 1px solid #c9d1bd;
+  border-radius: 8px;
+}
+
+.github-setup span,
+.empty-state span,
+.status-line,
+.setup-note {
+  color: #63705e;
+}
+
+.github-setup h3 {
+  margin: 4px 0 0;
+  font-size: 24px;
+}
+
+.github-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.github-actions button,
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.github-actions button {
+  color: #24443b;
+  background: #d7e3c8;
+  border: 1px solid #b6c6a3;
+}
+
+.manual-sync {
+  padding: 16px;
+  background: rgba(251, 250, 244, 0.92);
+  border: 1px solid #c9d1bd;
+  border-radius: 8px;
+}
+
+.manual-sync form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 96px;
+  gap: 10px;
+}
+
+.manual-sync input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  color: #1c211d;
+  background: #fffdf6;
+  border: 1px solid #b9c3ae;
+  border-radius: 6px;
+}
+
+.github-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  padding: 18px;
+  background: rgba(251, 250, 244, 0.92);
+  border: 1px dashed #b9c3ae;
+  border-radius: 8px;
+}
+
+.project-row a {
+  display: grid;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  color: #24443b;
+  background: #d7e3c8;
+  border-radius: 6px;
 }
 
 .project-list {
@@ -374,8 +484,21 @@ button {
 
   .dashboard-grid,
   .activity-panel ol,
-  .project-composer {
+  .project-composer,
+  .github-setup,
+  .github-summary,
+  .manual-sync form {
     grid-template-columns: 1fr;
+  }
+
+  .github-actions {
+    justify-content: stretch;
+  }
+
+  .github-actions button,
+  .button-link {
+    justify-content: center;
+    width: 100%;
   }
 
   .topbar {

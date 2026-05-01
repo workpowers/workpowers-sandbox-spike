@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type {
   LiveForkBootEvent,
@@ -33,6 +34,7 @@ export class LiveForkSessionStore {
   private readonly sessions = new Map<string, LiveForkSession>();
   private readonly filePath: string;
   private readonly persist: boolean;
+  private saveQueue = Promise.resolve();
 
   constructor(options: { filePath?: string; persist?: boolean } = {}) {
     this.filePath = options.filePath ?? path.resolve(".workpowers/sessions.json");
@@ -179,11 +181,16 @@ export class LiveForkSessionStore {
   private async save() {
     if (!this.persist) return;
 
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const tmpPath = `${this.filePath}.tmp`;
     const payload = JSON.stringify({ sessions: this.list().map(redactSessionSecrets) } satisfies SessionStoreFile, null, 2);
-    await fs.writeFile(tmpPath, `${payload}\n`);
-    await fs.rename(tmpPath, this.filePath);
+    const write = this.saveQueue.catch(() => undefined).then(async () => {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+      const tmpPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+      await fs.writeFile(tmpPath, `${payload}\n`);
+      await fs.rename(tmpPath, this.filePath);
+    });
+
+    this.saveQueue = write.then(() => undefined, () => undefined);
+    await write;
   }
 }
 

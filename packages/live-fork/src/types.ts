@@ -9,8 +9,13 @@ export type LiveForkDataMode =
   | "snapshot_restore";
 
 export type LiveForkBootPhase =
+  | "loading_profile"
   | "creating_sandbox"
+  | "resolving_github_access"
+  | "resolving_app_environment"
   | "cloning_repo"
+  | "creating_data_branch"
+  | "injecting_env"
   | "installing_dependencies"
   | "starting_daemon"
   | "starting_database"
@@ -18,7 +23,10 @@ export type LiveForkBootPhase =
   | "seeding_data"
   | "starting_api"
   | "starting_frontend"
+  | "starting_service"
   | "checking_health"
+  | "preview_ready"
+  | "cleanup"
   | "ready"
   | "failed";
 
@@ -29,6 +37,7 @@ export type LiveForkBootEvent = {
   status: LiveForkBootEventStatus;
   message: string;
   timestamp: string;
+  durationMs?: number;
 };
 
 export type LiveForkResourceProfile = {
@@ -40,6 +49,8 @@ export type LiveForkResourceProfile = {
 
 export type LiveForkSession = {
   id: string;
+  createdByUserId?: string;
+  organizationId?: string;
   repoUrl: string;
   ref: string;
   branchName?: string;
@@ -64,6 +75,10 @@ export type LiveForkSession = {
     mode: LiveForkDataMode;
     seedName?: string;
     resettable: boolean;
+    provider?: "local" | "neon";
+    branchId?: string;
+    endpointId?: string;
+    environmentRef?: string;
   };
   lifecycle: {
     createdAt: string;
@@ -84,14 +99,24 @@ export type LiveForkSession = {
     workdir?: string;
     daemonUrl?: string;
     daemonPreviewUrl?: string;
+    playwrightCommand?: string;
+    dataBranch?: {
+      provider: "neon";
+      projectId: string;
+      branchId: string;
+      endpointId?: string;
+      databaseName: string;
+      roleName: string;
+    };
   };
 };
 
 export type CreateSessionRequest = {
-  repoUrl: string;
+  repoUrl?: string;
   ref?: string;
   branchName?: string;
   template?: string;
+  profilePath?: string;
   organizationId?: string;
   userId?: string;
   credentialRef?: "org:github-app";

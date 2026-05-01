@@ -1,12 +1,12 @@
 import "dotenv/config";
 import { Daytona, Image } from "@daytonaio/sdk";
 
-const snapshotName = process.env.LIVE_FORK_SNAPSHOT_NAME ?? "workpowers-daytona-node-playwright-postgres";
+const snapshotName = process.env.LIVE_FORK_SNAPSHOT_NAME?.trim() || "workpowers-daytona-node-playwright-postgres";
 const image = Image.base("mcr.microsoft.com/playwright:v1.59.1-noble")
   .env({
     DEBIAN_FRONTEND: "noninteractive",
     PNPM_HOME: "/usr/local/share/pnpm",
-    PATH: "/usr/local/share/pnpm:$PATH"
+    PATH: "/usr/local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   })
   .runCommands(
     [

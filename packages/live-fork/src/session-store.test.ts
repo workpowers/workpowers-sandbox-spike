@@ -100,6 +100,33 @@ describe("live fork session primitives", () => {
     expect(reader.get("sess_test")?.repoUrl).toContain("github.com");
   });
 
+  it("serializes concurrent persisted updates", async () => {
+    const filePath = await storePath();
+    const writer = new LiveForkSessionStore({ filePath });
+    await writer.set(session());
+
+    await Promise.all([
+      writer.touch("sess_test", new Date(1).toISOString()),
+      writer.appendBootEvent("sess_test", {
+        phase: "ready",
+        status: "completed",
+        message: "First concurrent event"
+      }),
+      writer.appendBootEvent("sess_test", {
+        phase: "ready",
+        status: "completed",
+        message: "Second concurrent event"
+      })
+    ]);
+
+    const raw = await readFile(filePath, "utf8");
+    expect(JSON.parse(raw).sessions).toHaveLength(1);
+
+    const reader = new LiveForkSessionStore({ filePath });
+    await reader.load();
+    expect(reader.get("sess_test")?.boot.events).toHaveLength(2);
+  });
+
   it("redacts token-shaped values before persisting sessions", async () => {
     const token = "ghs_abcdefghijklmnopqrstuvwxyz1234567890";
     const filePath = await storePath();

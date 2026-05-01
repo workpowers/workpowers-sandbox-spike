@@ -102,6 +102,7 @@ button:disabled {
 
 .session-form input,
 .file-row input,
+.environment-form input,
 .file-panel textarea {
   width: 100%;
   color: #171c1a;
@@ -111,12 +112,14 @@ button:disabled {
 }
 
 .session-form input,
-.file-row input {
+.file-row input,
+.environment-form input {
   min-height: 42px;
   padding: 0 12px;
 }
 
 .session-form button,
+.environment-form button,
 .action-stack button,
 .file-row button {
   display: inline-flex;
@@ -213,6 +216,69 @@ button:disabled {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.environment-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #fffdf5;
+  border: 1px solid #d1cbbd;
+  border-radius: 8px;
+}
+
+.environment-copy {
+  min-width: 0;
+}
+
+.environment-copy p {
+  margin: -2px 0 10px;
+  color: #5a625d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.environment-copy strong {
+  display: block;
+  color: #24423a;
+  font-size: 13px;
+}
+
+.environment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.environment-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #48544e;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.environment-form .secret-field,
+.environment-form .toggle-field,
+.environment-form button {
+  grid-column: 1 / -1;
+}
+
+.environment-form .toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  text-transform: none;
+}
+
+.environment-form .toggle-field input {
+  width: 18px;
+  min-height: 18px;
 }
 
 .phase {
@@ -395,6 +461,11 @@ button:disabled {
 
   .session-list {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .environment-panel,
+  .environment-form {
+    grid-template-columns: 1fr;
   }
 }
 

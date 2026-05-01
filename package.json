@@ -16,7 +16,10 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "playwright:smoke": "playwright test --config apps/spike-app/playwright.config.ts",
+    "daytona:snapshot:status": "tsx scripts/daytona-snapshot-status.ts",
+    "daytona:snapshot:delete": "tsx scripts/delete-daytona-snapshot.ts",
     "daytona:snapshot": "tsx scripts/create-daytona-snapshot.ts",
+    "daytona:private-clone:smoke": "tsx scripts/daytona-private-clone-smoke.ts",
     "daytona:smoke": "tsx scripts/daytona-smoke.ts",
     "sandbox:demo": "tsx scripts/local-live-fork-demo.ts"
   },

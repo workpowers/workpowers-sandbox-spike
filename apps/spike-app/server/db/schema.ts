@@ -195,6 +195,83 @@ export const githubRepositoryGrants = pgTable(
   ]
 );
 
+export const orgCredentials = pgTable(
+  "org_credentials",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    label: text("label").notNull(),
+    sourceType: text("source_type").notNull(),
+    secretRef: text("secret_ref").notNull(),
+    grantedByUserId: text("granted_by_user_id").references(() => user.id, { onDelete: "set null" }),
+    scopes: jsonb("scopes").$type<string[]>(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    index("org_credentials_organization_idx").on(table.organizationId),
+    index("org_credentials_provider_idx").on(table.organizationId, table.provider),
+    uniqueIndex("org_credentials_org_provider_label_idx").on(table.organizationId, table.provider, table.label)
+  ]
+);
+
+export const liveForkApps = pgTable(
+  "live_fork_apps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    repoFullName: text("repo_full_name").notNull(),
+    githubRepositoryId: text("github_repository_id"),
+    defaultBranch: text("default_branch").notNull().default("main"),
+    profilePath: text("profile_path"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    uniqueIndex("live_fork_apps_org_name_idx").on(table.organizationId, table.name),
+    uniqueIndex("live_fork_apps_org_repo_idx").on(table.organizationId, table.repoFullName)
+  ]
+);
+
+export const liveForkAppEnvironments = pgTable(
+  "live_fork_app_environments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => liveForkApps.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    dataProvider: text("data_provider").notNull(),
+    dataConfig: jsonb("data_config").$type<Record<string, unknown>>().notNull(),
+    credentialId: uuid("credential_id").references(() => orgCredentials.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    uniqueIndex("live_fork_app_environments_org_app_name_idx").on(table.organizationId, table.appId, table.name),
+    index("live_fork_app_environments_org_idx").on(table.organizationId)
+  ]
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -220,7 +297,10 @@ export const organizationRelations = relations(organization, ({ many }) => ({
   invitations: many(invitation),
   projects: many(projects),
   githubAppInstallations: many(githubAppInstallations),
-  githubRepositoryGrants: many(githubRepositoryGrants)
+  githubRepositoryGrants: many(githubRepositoryGrants),
+  orgCredentials: many(orgCredentials),
+  liveForkApps: many(liveForkApps),
+  liveForkAppEnvironments: many(liveForkAppEnvironments)
 }));
 
 export const memberRelations = relations(member, ({ one }) => ({
@@ -274,6 +354,43 @@ export const githubRepositoryGrantRelations = relations(githubRepositoryGrants, 
   })
 }));
 
+export const orgCredentialRelations = relations(orgCredentials, ({ one }) => ({
+  organization: one(organization, {
+    fields: [orgCredentials.organizationId],
+    references: [organization.id]
+  }),
+  grantedByUser: one(user, {
+    fields: [orgCredentials.grantedByUserId],
+    references: [user.id]
+  })
+}));
+
+export const liveForkAppRelations = relations(liveForkApps, ({ one, many }) => ({
+  organization: one(organization, {
+    fields: [liveForkApps.organizationId],
+    references: [organization.id]
+  }),
+  environments: many(liveForkAppEnvironments)
+}));
+
+export const liveForkAppEnvironmentRelations = relations(liveForkAppEnvironments, ({ one }) => ({
+  organization: one(organization, {
+    fields: [liveForkAppEnvironments.organizationId],
+    references: [organization.id]
+  }),
+  app: one(liveForkApps, {
+    fields: [liveForkAppEnvironments.appId],
+    references: [liveForkApps.id]
+  }),
+  credential: one(orgCredentials, {
+    fields: [liveForkAppEnvironments.credentialId],
+    references: [orgCredentials.id]
+  })
+}));
+
 export type Project = typeof projects.$inferSelect;
 export type GitHubAppInstallation = typeof githubAppInstallations.$inferSelect;
 export type GitHubRepositoryGrant = typeof githubRepositoryGrants.$inferSelect;
+export type OrgCredential = typeof orgCredentials.$inferSelect;
+export type LiveForkApp = typeof liveForkApps.$inferSelect;
+export type LiveForkAppEnvironment = typeof liveForkAppEnvironments.$inferSelect;

@@ -1,0 +1,61 @@
+name: spike-app
+
+repo:
+  provider: github
+  owner: workpowers
+  name: workpowers-sandbox-spike
+
+runtime:
+  provider: daytona
+  snapshot: workpowers-daytona-node-playwright-postgres
+  resources:
+    cpu: 2
+    memoryGb: 4
+    diskGb: 10
+
+install:
+  command: pnpm install
+
+setup:
+  commands:
+    - bash scripts/sandbox-bootstrap-postgres.sh
+    - pnpm db:migrate
+    - pnpm db:seed
+    - pnpm exec playwright install chromium
+
+services:
+  api:
+    command: pnpm dev:spike-api
+    port: 3001
+    preview: false
+    healthcheck: http://localhost:3001/health
+  web:
+    command: pnpm dev:spike --host 0.0.0.0 --port 3000
+    port: 3000
+    preview: true
+    healthcheck: http://localhost:3000
+
+data:
+  primary:
+    kind: local_seed
+    provider: local
+
+env:
+  required:
+    - DATABASE_URL
+    - BETTER_AUTH_SECRET
+    - BETTER_AUTH_URL
+
+agent:
+  daemon:
+    command: pnpm dev:daemon
+    port: 8790
+
+checks:
+  playwright:
+    command: pnpm playwright:smoke
+    targetUrl: http://localhost:3000
+
+lifecycle:
+  ttlMinutes: 120
+  idleTimeoutMinutes: 30

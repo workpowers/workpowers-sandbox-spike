@@ -101,6 +101,72 @@ async function main() {
   await db.execute(sql`alter table github_repository_grants alter column created_at set default now()`);
   await db.execute(sql`alter table github_repository_grants alter column updated_at set default now()`);
 
+  await db.execute(sql`
+    create table if not exists org_credentials (
+      id uuid primary key default gen_random_uuid(),
+      organization_id text not null references organization(id) on delete cascade,
+      provider text not null,
+      label text not null,
+      source_type text not null,
+      secret_ref text not null,
+      granted_by_user_id text references "user"(id) on delete set null,
+      scopes jsonb,
+      revoked_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await db.execute(sql`create index if not exists org_credentials_organization_idx on org_credentials(organization_id)`);
+  await db.execute(sql`create index if not exists org_credentials_provider_idx on org_credentials(organization_id, provider)`);
+  await db.execute(sql`
+    create unique index if not exists org_credentials_org_provider_label_idx
+    on org_credentials(organization_id, provider, label)
+  `);
+
+  await db.execute(sql`
+    create table if not exists live_fork_apps (
+      id uuid primary key default gen_random_uuid(),
+      organization_id text not null references organization(id) on delete cascade,
+      name text not null,
+      repo_full_name text not null,
+      github_repository_id text,
+      default_branch text not null default 'main',
+      profile_path text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await db.execute(sql`
+    create unique index if not exists live_fork_apps_org_name_idx
+    on live_fork_apps(organization_id, name)
+  `);
+  await db.execute(sql`
+    create unique index if not exists live_fork_apps_org_repo_idx
+    on live_fork_apps(organization_id, repo_full_name)
+  `);
+
+  await db.execute(sql`
+    create table if not exists live_fork_app_environments (
+      id uuid primary key default gen_random_uuid(),
+      organization_id text not null references organization(id) on delete cascade,
+      app_id uuid not null references live_fork_apps(id) on delete cascade,
+      name text not null,
+      data_provider text not null,
+      data_config jsonb not null,
+      credential_id uuid references org_credentials(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await db.execute(sql`
+    create unique index if not exists live_fork_app_environments_org_app_name_idx
+    on live_fork_app_environments(organization_id, app_id, name)
+  `);
+  await db.execute(sql`
+    create index if not exists live_fork_app_environments_org_idx
+    on live_fork_app_environments(organization_id)
+  `);
+
   console.log("Database migrated");
   await pool.end();
 }

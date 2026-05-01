@@ -10,8 +10,10 @@ import type {
   LiveForkResourceProfile,
   LiveForkSession
 } from "../../../../packages/live-fork/src/types.js";
+import type { LiveForkProfile } from "../../../../packages/live-fork/src/profile.js";
 
-export type NormalizedCreateSessionRequest = CreateSessionRequest & {
+export type NormalizedCreateSessionRequest = Omit<CreateSessionRequest, "repoUrl"> & {
+  repoUrl: string;
   ref: string;
   template: string;
   data: {
@@ -23,6 +25,16 @@ export type NormalizedCreateSessionRequest = CreateSessionRequest & {
     cloneUrl: string;
     token: string;
     tokenExpiresAt: string;
+  };
+  profile?: LiveForkProfile;
+  sessionEnv?: Record<string, string>;
+  dataBranch?: {
+    provider: "neon";
+    projectId: string;
+    branchId: string;
+    endpointId?: string;
+    databaseName: string;
+    roleName: string;
   };
 };
 
@@ -64,8 +76,13 @@ export function createStartingSession(
 ): LiveForkSession {
   const now = new Date().toISOString();
 
+  const maxLifetimeMinutes = input.profile?.lifecycle.ttlMinutes ?? 120;
+  const idleTimeoutMinutes = input.profile?.lifecycle.idleTimeoutMinutes ?? 30;
+
   return {
     id: sessionId,
+    createdByUserId: input.userId,
+    organizationId: input.organizationId,
     repoUrl: input.repoUrl,
     ref: input.ref,
     branchName: input.branchName,
@@ -81,10 +98,10 @@ export function createStartingSession(
       healthcheckUrl: "http://localhost:3001/health"
     },
     boot: {
-      phase: "creating_sandbox",
+      phase: input.profile ? "loading_profile" : "creating_sandbox",
       events: [
         {
-          phase: "creating_sandbox",
+          phase: input.profile ? "loading_profile" : "creating_sandbox",
           status: "running",
           message: "Creating live fork session",
           timestamp: now
@@ -98,10 +115,10 @@ export function createStartingSession(
     },
     lifecycle: {
       createdAt: now,
-      expiresAt: sessionExpiry(120),
+      expiresAt: sessionExpiry(maxLifetimeMinutes),
       lastActivityAt: now,
-      idleTimeoutMinutes: 30,
-      maxLifetimeMinutes: 120
+      idleTimeoutMinutes,
+      maxLifetimeMinutes
     },
     resourceProfile: provider.resourceProfile(),
     artifacts: {

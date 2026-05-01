@@ -7,6 +7,8 @@ const GITHUB_TOKEN_PATTERNS = [
 const URL_CREDENTIAL_PATTERN = /https:\/\/([^/\s:@]+):([^@\s]+)@github\.com/gi;
 const X_ACCESS_TOKEN_PATTERN = /x-access-token:([^@\s]+)@/gi;
 const AUTH_HEADER_PATTERN = /\b(Bearer|token)\s+[A-Za-z0-9._\-]{20,}/gi;
+const POSTGRES_URL_PATTERN = /\b(postgres(?:ql)?:\/\/[^:\s/@]+:)([^@\s]+)(@[^?\s]+(?:\?[^\s]*)?)/gi;
+const DATABASE_URL_ASSIGNMENT_PATTERN = /\b(DATABASE_URL=)([^\s]+)/gi;
 
 export function redactSecrets(value: string, extraSecrets: string[] = []) {
   let redacted = value;
@@ -18,6 +20,8 @@ export function redactSecrets(value: string, extraSecrets: string[] = []) {
   redacted = redacted.replace(URL_CREDENTIAL_PATTERN, "https://$1:[REDACTED]@github.com");
   redacted = redacted.replace(X_ACCESS_TOKEN_PATTERN, "x-access-token:[REDACTED]@");
   redacted = redacted.replace(AUTH_HEADER_PATTERN, "$1 [REDACTED]");
+  redacted = redacted.replace(DATABASE_URL_ASSIGNMENT_PATTERN, "$1[REDACTED]");
+  redacted = redacted.replace(POSTGRES_URL_PATTERN, "$1[REDACTED]$3");
 
   for (const pattern of GITHUB_TOKEN_PATTERNS) {
     redacted = redacted.replace(pattern, "[REDACTED]");

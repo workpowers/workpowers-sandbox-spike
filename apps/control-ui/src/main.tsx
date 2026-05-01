@@ -10,6 +10,7 @@ import {
   Play,
   Power,
   RefreshCcw,
+  ServerCog,
   SquareTerminal
 } from "lucide-react";
 import type { CommandResult, LiveForkBootEvent, LiveForkSession } from "../../../packages/live-fork/src/types.js";
@@ -28,8 +29,34 @@ type FileResponse = {
   content: string;
 };
 
+type NeonEnvironmentResponse = {
+  app: {
+    id: string;
+    name: string;
+    repoFullName: string;
+    defaultBranch: string;
+    profilePath?: string;
+  };
+  environment: {
+    id: string;
+    name: string;
+    dataProvider: string;
+    dataConfig: Record<string, unknown>;
+  };
+  credential: {
+    id: string;
+    provider: string;
+    label: string;
+    sourceType: string;
+    revokedAt?: string | null;
+  };
+};
+
 const defaultRepo = "local";
 const defaultPath = "apps/spike-app/src/main.tsx";
+const defaultUserId = "jFQmUhP74OkuEbpqrwcYIk6NWpLJbibg";
+const defaultOrganizationId = "4fe2301e-16ce-4c21-9346-f18f410d4c38";
+const ringofbearaProfilePath = "profiles/ringofbeara.workpowers.livefork.yml";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/control${path}`, {
@@ -54,6 +81,9 @@ function App() {
   const [sessions, setSessions] = useState<LiveForkSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [repoUrl, setRepoUrl] = useState(defaultRepo);
+  const [profilePath, setProfilePath] = useState("");
+  const [userId, setUserId] = useState(defaultUserId);
+  const [organizationId, setOrganizationId] = useState(defaultOrganizationId);
   const [ref, setRef] = useState("main");
   const [filePath, setFilePath] = useState(defaultPath);
   const [fileContent, setFileContent] = useState("");
@@ -61,6 +91,13 @@ function App() {
   const [diff, setDiff] = useState("");
   const [playwright, setPlaywright] = useState<CommandResult | null>(null);
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
+  const [neonProjectId, setNeonProjectId] = useState("");
+  const [parentBranchId, setParentBranchId] = useState("");
+  const [databaseName, setDatabaseName] = useState("");
+  const [roleName, setRoleName] = useState("");
+  const [pooled, setPooled] = useState(true);
+  const [neonApiKey, setNeonApiKey] = useState("");
+  const [environmentStatus, setEnvironmentStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -101,15 +138,23 @@ function App() {
 
   async function startSession(event: FormEvent) {
     event.preventDefault();
+    const body = profilePath.trim()
+      ? {
+        profilePath: profilePath.trim(),
+        ref,
+        userId,
+        organizationId
+      }
+      : {
+        repoUrl,
+        ref,
+        template: "node-pnpm-playwright-postgres",
+        data: { mode: "local_seed", seedName: "basic-projects" }
+      };
     const created = await runAction("start", () =>
       api<SessionSummary>("/sessions", {
         method: "POST",
-        body: JSON.stringify({
-          repoUrl,
-          ref,
-          template: "node-pnpm-playwright-postgres",
-          data: { mode: "local_seed", seedName: "basic-projects" }
-        })
+        body: JSON.stringify(body)
       })
     );
     if (created) {
@@ -174,6 +219,46 @@ function App() {
     await loadSessions();
   }
 
+  async function saveRingofbearaEnvironment(event: FormEvent) {
+    event.preventDefault();
+    const result = await runAction("save-env", () =>
+      api<NeonEnvironmentResponse>("/app-environments/neon", {
+        method: "POST",
+        body: JSON.stringify({
+          organizationId,
+          userId,
+          app: {
+            name: "ringofbeara",
+            repoFullName: "evanfuture/ringofbeara.com",
+            githubRepositoryId: "1225479927",
+            defaultBranch: "main",
+            profilePath: ringofbearaProfilePath
+          },
+          environment: {
+            name: "staging",
+            dataConfig: {
+              neonProjectId,
+              parentBranchId,
+              databaseName,
+              roleName,
+              pooled
+            }
+          },
+          credential: {
+            label: "ringofbeara:staging",
+            neonApiKey
+          }
+        })
+      })
+    );
+
+    if (result) {
+      setEnvironmentStatus(`Saved ${result.app.name}:${result.environment.name} with ${result.credential.sourceType}.`);
+      setNeonApiKey("");
+      setProfilePath(ringofbearaProfilePath);
+    }
+  }
+
   return (
     <main className="operator-shell">
       <aside className="control-rail">
@@ -187,12 +272,28 @@ function App() {
 
         <form className="session-form" onSubmit={startSession}>
           <label>
+            Profile Path
+            <input
+              value={profilePath}
+              onChange={(event) => setProfilePath(event.target.value)}
+              placeholder={ringofbearaProfilePath}
+            />
+          </label>
+          <label>
             Repository
-            <input value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} />
+            <input value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} disabled={Boolean(profilePath.trim())} />
           </label>
           <label>
             Ref
             <input value={ref} onChange={(event) => setRef(event.target.value)} />
+          </label>
+          <label>
+            User ID
+            <input value={userId} onChange={(event) => setUserId(event.target.value)} />
+          </label>
+          <label>
+            Organization ID
+            <input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} />
           </label>
           <button type="submit" disabled={Boolean(busy)}>
             {busy === "start" ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
@@ -227,6 +328,49 @@ function App() {
         </header>
 
         {error ? <div className="error-line">{error}</div> : null}
+
+        <section className="environment-panel">
+          <div className="environment-copy">
+            <PanelTitle icon={<ServerCog size={18} />} title="Ring of Beara Environment" />
+            {environmentStatus ? <strong>{environmentStatus}</strong> : null}
+          </div>
+          <form className="environment-form" onSubmit={saveRingofbearaEnvironment}>
+            <label>
+              Neon Project ID
+              <input value={neonProjectId} onChange={(event) => setNeonProjectId(event.target.value)} required />
+            </label>
+            <label>
+              Parent Branch ID
+              <input value={parentBranchId} onChange={(event) => setParentBranchId(event.target.value)} required />
+            </label>
+            <label>
+              Database Name
+              <input value={databaseName} onChange={(event) => setDatabaseName(event.target.value)} required />
+            </label>
+            <label>
+              Role Name
+              <input value={roleName} onChange={(event) => setRoleName(event.target.value)} required />
+            </label>
+            <label className="secret-field">
+              Neon API Key
+              <input
+                value={neonApiKey}
+                onChange={(event) => setNeonApiKey(event.target.value)}
+                type="password"
+                autoComplete="off"
+                required
+              />
+            </label>
+            <label className="toggle-field">
+              <input checked={pooled} onChange={(event) => setPooled(event.target.checked)} type="checkbox" />
+              Use pooled connection URI
+            </label>
+            <button type="submit" disabled={Boolean(busy)}>
+              {busy === "save-env" ? <LoaderCircle size={17} className="spin" /> : <ServerCog size={17} />}
+              Save Environment
+            </button>
+          </form>
+        </section>
 
         <section className="phase-strip">
           {(selected?.boot.events ?? []).map((event, index) => (

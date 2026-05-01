@@ -1,6 +1,7 @@
 import type { CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams } from "@daytonaio/sdk";
+import { previewService, profileToEnv } from "../../../../packages/live-fork/src/profile.js";
 import { redactCommandResult, redactSecrets } from "../../../../packages/live-fork/src/redaction.js";
-import type { CommandRequest, CommandResult, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
+import type { CommandRequest, CommandResult, FileWriteRequest, LiveForkBootPhase, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
 import {
   daemonGetDiff,
   daemonGetLogs,
@@ -90,6 +91,26 @@ function cloneCommand(repoUrl: string, repoDir: string, token?: string) {
   ].join("\n");
 }
 
+function envFileCommand(env: Record<string, string>) {
+  return [
+    "cat > .env <<'EOF'",
+    ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
+    "EOF"
+  ].join("\n");
+}
+
+function serviceLogPath(name: string) {
+  return `/tmp/workpowers-service-${name.replace(/[^a-z0-9_-]/gi, "-")}.log`;
+}
+
+function configuredSnapshot(input: NormalizedCreateSessionRequest) {
+  return input.profile?.runtime.snapshot?.trim() || process.env.LIVE_FORK_SNAPSHOT_NAME?.trim() || "workpowers-daytona-node-playwright-postgres";
+}
+
+function configuredImage(input: NormalizedCreateSessionRequest) {
+  return input.profile?.runtime.image?.trim() || process.env.LIVE_FORK_TEMPLATE_IMAGE?.trim();
+}
+
 export class DaytonaSandboxProvider implements SandboxProvider {
   private readonly sandboxes = new Map<string, DaytonaSandbox>();
   private readonly workdirs = new Map<string, string>();
@@ -99,15 +120,17 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       cpu: 2,
       memoryGb: 4,
       diskGb: 10,
-      source: process.env.LIVE_FORK_SNAPSHOT_NAME ? ("snapshot" as const) : ("image" as const)
+      source: process.env.LIVE_FORK_ALLOW_IMAGE_FALLBACK === "true" && !process.env.LIVE_FORK_SNAPSHOT_NAME?.trim()
+        ? ("image" as const)
+        : ("snapshot" as const)
     };
   }
 
   async create(input: NormalizedCreateSessionRequest, session: LiveForkSession, record: BootEventRecorder): Promise<ProvisionedSession> {
     const { Daytona } = await import("@daytonaio/sdk");
     const daytona = new Daytona();
-    const snapshot = process.env.LIVE_FORK_SNAPSHOT_NAME;
-    const image = process.env.LIVE_FORK_TEMPLATE_IMAGE;
+    const snapshot = configuredSnapshot(input);
+    const image = configuredImage(input);
     const baseCreateParams = {
       name: `workpowers-${session.id}`,
       public: true,
@@ -124,7 +147,8 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       }
     };
 
-    const createParams: CreateSandboxFromSnapshotParams | CreateSandboxFromImageParams = snapshot
+    const createParams: CreateSandboxFromSnapshotParams | CreateSandboxFromImageParams =
+      snapshot && (process.env.LIVE_FORK_ALLOW_IMAGE_FALLBACK !== "true" || !image)
       ? { ...baseCreateParams, snapshot }
       : image
         ? {
@@ -160,6 +184,85 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       await checkedCommand(sandbox, `git remote set-url origin ${shellQuote(cloneUrl)}`, repoDir, 30, undefined, cloneSecrets);
       await record("cloning_repo", "completed", "Repository cloned");
       await checkedCommand(sandbox, `git checkout ${shellQuote(input.ref)}`, repoDir, 120);
+      if (input.profile) {
+        const profile = input.profile;
+        const env = profileToEnv(profile, input.sessionEnv ?? {});
+        const envSecrets = Object.values(env);
+        await record("injecting_env", "running", "Writing session-specific environment");
+        await checkedCommand(sandbox, envFileCommand(env), repoDir, 10, undefined, envSecrets);
+        await record("injecting_env", "completed", "Session environment written");
+
+        const pnpm = "npx --yes pnpm@10.29.1";
+        await record("installing_dependencies", "running", `Installing dependencies with ${profile.install.command}`);
+        await checkedCommand(sandbox, profile.install.command, repoDir, 900, undefined, envSecrets);
+        await record("installing_dependencies", "completed", "Dependencies installed");
+
+        for (const command of profile.setup.commands) {
+          const phase: LiveForkBootPhase = command.includes("sandbox-bootstrap-postgres")
+            ? "starting_database"
+            : command.includes("db:migrate")
+              ? "running_migrations"
+              : command.includes("db:seed")
+                ? "seeding_data"
+                : "installing_dependencies";
+          await record(phase, "running", `Running setup command: ${redactSecrets(command, envSecrets)}`);
+          await checkedCommand(sandbox, command, repoDir, 600, undefined, envSecrets);
+          await record(phase, "completed", "Setup command completed");
+        }
+
+        await record("starting_daemon", "running", "Starting session daemon");
+        await checkedCommand(
+          sandbox,
+          [
+            "if [ -f /opt/workpowers-session-daemon/package.json ]; then",
+            "  nohup env LIVE_FORK_WORKDIR=$PWD SESSION_DAEMON_PORT=8790 pnpm --dir /opt/workpowers-session-daemon dev:daemon > /tmp/workpowers-daemon.log 2>&1 &",
+            "else",
+            `  nohup env LIVE_FORK_WORKDIR=$PWD SESSION_DAEMON_PORT=8790 ${pnpm} dev:daemon > /tmp/workpowers-daemon.log 2>&1 &`,
+            "fi"
+          ].join("\n"),
+          repoDir,
+          10,
+          undefined,
+          envSecrets
+        );
+        await checkedCommand(
+          sandbox,
+          "for i in $(seq 1 30); do curl -fsS http://localhost:8790/health >/dev/null && exit 0; sleep 1; done; cat /tmp/workpowers-daemon.log 2>/dev/null || true; exit 1",
+          repoDir,
+          40,
+          undefined,
+          envSecrets
+        );
+        await record("starting_daemon", "completed", "Session daemon is healthy");
+
+        for (const [name, service] of Object.entries(profile.services)) {
+          await record("starting_service", "running", `Starting ${name}`);
+          await checkedCommand(
+            sandbox,
+            `nohup ${service.command} > ${shellQuote(serviceLogPath(name))} 2>&1 &`,
+            repoDir,
+            10,
+            undefined,
+            envSecrets
+          );
+          await record("starting_service", "completed", `${name} process started`);
+        }
+
+        await record("checking_health", "running", "Checking profile service health");
+        const healthCommands = Object.entries(profile.services).map(([name, service]) => {
+          const logPath = serviceLogPath(name);
+          return [
+            `echo checking ${shellQuote(name)}`,
+            `for i in $(seq 1 60); do curl -fsS ${shellQuote(service.healthcheck)} >/dev/null && exit 0; sleep 2; done`,
+            `cat ${shellQuote(logPath)} 2>/dev/null || true`,
+            "exit 1"
+          ].join("\n");
+        });
+        for (const command of healthCommands) {
+          await checkedCommand(sandbox, command, repoDir, 130, undefined, envSecrets);
+        }
+        await record("checking_health", "completed", "Profile service health checks passed");
+      } else {
       await checkedCommand(
         sandbox,
         [
@@ -227,19 +330,23 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         130
       );
       await record("checking_health", "completed", "API and frontend health checks passed");
+      }
     } catch (error) {
       await record("failed", "failed", error instanceof Error ? error.message : String(error));
       await sandbox.delete(120).catch(() => undefined);
       throw error;
     }
 
+    const selectedPreviewService = input.profile ? previewService(input.profile) : undefined;
+    const previewPort = selectedPreviewService?.port ?? 3000;
     const preview = sandbox.getSignedPreviewUrl
-      ? await sandbox.getSignedPreviewUrl(3000, 60 * 60)
-      : await sandbox.getPreviewLink(3000);
+      ? await sandbox.getSignedPreviewUrl(previewPort, 60 * 60)
+      : await sandbox.getPreviewLink(previewPort);
     const daemonPreview = sandbox.getSignedPreviewUrl
       ? await sandbox.getSignedPreviewUrl(8790, 60 * 60)
       : await sandbox.getPreviewLink(8790);
 
+    await record("preview_ready", "completed", `Preview is available for port ${previewPort}`);
     await record("ready", "completed", "Live fork session is ready");
 
     const readySession: LiveForkSession = {
@@ -253,16 +360,20 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         status: "running"
       },
       app: {
-        internalUrl: "http://localhost:3000",
+        internalUrl: selectedPreviewService ? `http://localhost:${selectedPreviewService.port}` : "http://localhost:3000",
         previewUrl: preview.url,
         previewToken: preview.token,
-        devCommand: "pnpm dev:spike --host 0.0.0.0 --port 3000",
-        healthcheckUrl: "http://localhost:3001/health"
+        devCommand: selectedPreviewService?.command ?? "pnpm dev:spike --host 0.0.0.0 --port 3000",
+        healthcheckUrl: selectedPreviewService?.healthcheck ?? "http://localhost:3001/health"
       },
       data: {
         mode: input.data.mode ?? "local_seed",
         seedName: input.data.seedName ?? "basic-projects",
-        resettable: true
+        resettable: true,
+        provider: input.profile?.data.primary.provider,
+        branchId: input.dataBranch?.branchId,
+        endpointId: input.dataBranch?.endpointId,
+        environmentRef: input.profile?.data.primary.environmentRef
       },
       lifecycle: session.lifecycle,
       resourceProfile: this.resourceProfile(),
@@ -272,7 +383,9 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       internal: {
         workdir: repoDir,
         daemonUrl: daemonPreview.url,
-        daemonPreviewUrl: daemonPreview.url
+        daemonPreviewUrl: daemonPreview.url,
+        playwrightCommand: input.profile?.checks.playwright?.command,
+        dataBranch: input.dataBranch
       }
     };
 
@@ -294,6 +407,12 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   async runPlaywright(session: LiveForkSession) {
+    if (session.internal?.playwrightCommand) {
+      return daemonRunCommand(session, {
+        command: session.internal.playwrightCommand,
+        timeoutSeconds: 180
+      });
+    }
     return daemonRunPlaywright(session);
   }
 
@@ -307,8 +426,12 @@ export class DaytonaSandboxProvider implements SandboxProvider {
 
   async stop(session: LiveForkSession) {
     const sandbox = this.requireSandbox(session);
-    await sandbox.stop(60);
-    await sandbox.delete(60);
+    await sandbox.stop(60).catch((error: unknown) => {
+      if (!isMissingSandboxError(error)) throw error;
+    });
+    await sandbox.delete(60).catch((error: unknown) => {
+      if (!isMissingSandboxError(error)) throw error;
+    });
   }
 
   private requireSandbox(session: LiveForkSession) {
@@ -318,4 +441,9 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     }
     return sandbox;
   }
+}
+
+function isMissingSandboxError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /sandbox .*not found|not found/i.test(message);
 }

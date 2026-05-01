@@ -1,0 +1,49 @@
+name: ringofbeara
+
+repo:
+  provider: github
+  owner: evanfuture
+  name: ringofbeara.com
+  credentialRef: org:github-app
+
+runtime:
+  provider: daytona
+  snapshot: workpowers-daytona-node-playwright-postgres
+  resources:
+    cpu: 2
+    memoryGb: 4
+    diskGb: 10
+
+install:
+  command: pnpm install
+
+services:
+  web:
+    command: pnpm dev --host 0.0.0.0 --port 4321
+    port: 4321
+    preview: true
+    healthcheck: http://localhost:4321
+
+data:
+  primary:
+    kind: branch
+    provider: neon
+    environmentRef: ringofbeara:staging
+
+env:
+  required:
+    - DATABASE_URL
+
+agent:
+  daemon:
+    command: pnpm workpowers-daemon
+    port: 8790
+
+checks:
+  playwright:
+    command: cd /opt/workpowers-session-daemon && TARGET_URL=http://localhost:4321 node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch({ headless: true }); const page = await browser.newPage(); const response = await page.goto(process.env.TARGET_URL); if (!response || !response.ok()) throw new Error('Preview did not return ok status'); console.log(await page.title()); await browser.close();"
+    targetUrl: http://localhost:4321
+
+lifecycle:
+  ttlMinutes: 240
+  idleTimeoutMinutes: 45

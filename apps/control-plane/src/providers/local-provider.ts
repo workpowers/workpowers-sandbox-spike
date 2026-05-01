@@ -114,6 +114,12 @@ export class LocalSandboxProvider implements SandboxProvider {
   }
 
   async runPlaywright(session: LiveForkSession) {
+    if (session.internal?.playwrightCommand) {
+      return daemonRunCommand(session, {
+        command: session.internal.playwrightCommand,
+        timeoutSeconds: 180
+      });
+    }
     return daemonRunPlaywright(session);
   }
 

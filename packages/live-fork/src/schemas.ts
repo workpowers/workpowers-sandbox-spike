@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 export const createSessionSchema = z.object({
-  repoUrl: z.string().min(1),
+  repoUrl: z.string().min(1).optional(),
   ref: z.string().default("main"),
   branchName: z.string().optional(),
   template: z.string().default("node-pnpm-playwright-postgres"),
+  profilePath: z.string().min(1).optional(),
   organizationId: z.string().min(1).optional(),
   userId: z.string().min(1).optional(),
   credentialRef: z.literal("org:github-app").optional(),
@@ -16,6 +17,9 @@ export const createSessionSchema = z.object({
       seedName: z.string().default("basic-projects")
     })
     .default({ mode: "local_seed", seedName: "basic-projects" })
+}).refine((value) => value.repoUrl || value.profilePath, {
+  message: "repoUrl or profilePath is required",
+  path: ["repoUrl"]
 });
 
 export const commandSchema = z.object({

@@ -1,5 +1,18 @@
 # Production Live Fork v0
 
+## Current System Shape
+
+The production-shaped v0 path is profile-driven and target-app scoped:
+
+- A checked-in `*.workpowers.livefork.yml` profile describes repo checkout, runtime resources, install/setup commands, services, health checks, required env, data provider, and browser checks.
+- Private GitHub checkout uses the org's GitHub App installation; there is no `WORKPOWERS_GITHUB_TOKEN` fallback for normal production-app sessions.
+- Target app Neon credentials are stored as org-owned encrypted credentials and referenced through app environment records.
+- Each managed-data session creates a Neon branch, injects that branch's `DATABASE_URL`, records internal branch metadata, and deletes the branch during explicit stop or TTL cleanup.
+- Daytona runs the target app and session daemon from the active `workpowers-daytona-node-playwright-postgres` snapshot.
+- Public session responses and boot events are redacted; preview tokens, daemon URLs, GitHub tokens, Neon API keys, and connection strings remain internal.
+
+Ring of Beara is the verified v0 fixture because it exercises private GitHub checkout, Astro/EmDash runtime behavior, Neon branching, page-level browser proof, and parent/fork data isolation. New target apps should follow the same profile and environment shape without hardcoding Ring-specific behavior into the control plane.
+
 ## Ring of Beara Neon Setup
 
 The `ringofbeara` profile expects an org-owned app environment named `ringofbeara:staging`.
@@ -54,6 +67,21 @@ curl -X POST http://localhost:8787/app-environments/neon \
 
 The control plane must have `WORKPOWERS_SECRET_ENCRYPTION_KEY` set before storing the credential. Target app Neon values are stored on the org-owned app environment and encrypted credential record, not as normal WorkPowers `.env` settings.
 
+The Ring parent branch must also be prepared in the target repo:
+
+- `ringofbeara.com` main includes the WorkPowers proof marker route and scripts.
+- The Ring `.env` points at the Neon parent branch.
+- `npm run db:proof:setup` creates the parent marker row.
+- EmDash setup is initialized on the parent branch so forked app routes render normally instead of the setup shell.
+
+The parent marker should read:
+
+```txt
+id: ringofbeara-parent-marker
+status: parent
+updated_by: parent-setup
+```
+
 ## Daytona Snapshot
 
 The Daytona runtime now expects the custom snapshot named `workpowers-daytona-node-playwright-postgres` by default.
@@ -91,3 +119,18 @@ Current finding on 2026-04-30: the snapshot exists and is active with 2 CPU, 4 G
 - `POST /sessions/sess_w7uJyy6grP/playwright` ran in the sandbox and passed with exit code `0`, returning page title `EmDash Admin`.
 - Explicit stop marked the Daytona sandbox stopped and deleted Neon branch `br-proud-haze-anua4u2v`.
 - TTL cleanup uses the same runtime stop and `cleanupDataBranch` path as explicit stop; this was verified by code path, not by waiting for wall-clock expiry.
+
+## Verified Data Isolation On 2026-05-01
+
+- Ring main was updated with the WorkPowers proof marker harness:
+  - `0156e71 feat: add WorkPowers fork proof marker`
+  - `8b94e73 fix: load env before configuring emdash`
+- The Ring parent Neon branch was initialized with EmDash setup and the proof marker.
+- WorkPowers session `sess_V4rYACxyS7` cloned Ring commit `8b94e73`.
+- The session created Neon branch `br-noisy-heart-an70h5iz` with endpoint `ep-empty-moon-anmes4bf`.
+- `npm run db:proof:read` inside the sandbox read the inherited marker from `ep-empty-moon-anmes4bf-pooler.c-6.us-east-1.aws.neon.tech` with `status: parent`.
+- `/workpowers/fork-proof` rendered through the Daytona preview and showed the inherited parent marker.
+- `npm run db:proof:mutate -- Changed inside WorkPowers fork sess_V4rYACxyS7` changed only the fork marker to `status: fork-mutated`.
+- `/workpowers/fork-proof` then rendered the fork mutation.
+- The local Ring parent branch still read `status: parent` from `ep-crimson-art-ane5o3ml-pooler.c-6.us-east-1.aws.neon.tech`.
+- Explicit stop deleted Neon branch `br-noisy-heart-an70h5iz`.

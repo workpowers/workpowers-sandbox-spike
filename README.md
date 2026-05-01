@@ -66,42 +66,83 @@ Set these environment variables before starting the control plane:
 
 ```bash
 LIVE_FORK_PROVIDER=daytona
+WORKPOWERS_SECRET_ENCRYPTION_KEY=...
 DAYTONA_API_KEY=...
 DAYTONA_API_URL=https://app.daytona.io/api
 LIVE_FORK_SNAPSHOT_NAME=workpowers-daytona-node-playwright-postgres
 ```
 
+`WORKPOWERS_SECRET_ENCRYPTION_KEY` is required before storing org-owned target app credentials, such as a Neon API key. Use a random 32-byte key encoded as hex or base64 and keep it stable for the local control-plane database you are using.
+
 Do not set `DAYTONA_TARGET=us` for the WorkPowers EU org. Let Daytona use the org default region, or set the correct EU target once the exact target id is known.
 
-Create or refresh the warm snapshot with:
+The snapshot is based on `mcr.microsoft.com/playwright:v1.59.1-noble` and bakes in Node, `pnpm@10.29.1`, git, curl, Postgres server/client tools, Playwright, common OS dependencies, and the WorkPowers session daemon. If `LIVE_FORK_SNAPSHOT_NAME` is blank, the Daytona provider uses `workpowers-daytona-node-playwright-postgres`.
+
+Check or create the snapshot with:
 
 ```bash
+pnpm daytona:snapshot:status
 pnpm daytona:snapshot
 ```
 
-The snapshot is based on `mcr.microsoft.com/playwright:v1.59.1-noble` and bakes in Node, `pnpm@10.29.1`, git, curl, Postgres server/client tools, Playwright, common OS dependencies, and the WorkPowers session daemon. If `LIVE_FORK_SNAPSHOT_NAME` is not set, the Daytona provider falls back to `LIVE_FORK_TEMPLATE_IMAGE` and the previous cold image path.
+If the Daytona API key cannot create snapshots, Daytona returns `403 Access denied`. Fix the key permissions rather than drifting to the old cold image fallback. The current intended runtime path is the active `workpowers-daytona-node-playwright-postgres` snapshot.
 
-If the Daytona API key cannot create snapshots, Daytona returns `403 Access denied`. In that case, clear `LIVE_FORK_SNAPSHOT_NAME` and use:
+### Profile-Driven Sessions
+
+Production-shaped sessions are started from a live fork profile rather than a hardcoded app boot path. A profile describes:
+
+- GitHub repo owner/name and optional org GitHub App credential reference.
+- Daytona snapshot/resources.
+- install and setup commands.
+- one or more services, including the preview service and healthcheck.
+- required env values.
+- data mode, including Neon branch environments.
+- the in-sandbox browser check command.
+- TTL and idle timeout.
+
+The checked-in profiles are:
+
+- `workpowers.livefork.yml`: the WorkPowers spike app using sandbox-local Postgres seed data.
+- `profiles/ringofbeara.workpowers.livefork.yml`: a private Astro/EmDash app using org GitHub App checkout and per-session Neon branches.
+
+Create a profile session through the control plane:
 
 ```bash
-LIVE_FORK_TEMPLATE_IMAGE=mcr.microsoft.com/playwright:v1.59.1-noble
+curl -sS -X POST http://localhost:8787/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profilePath": "profiles/ringofbeara.workpowers.livefork.yml",
+    "userId": "USER_ID",
+    "organizationId": "ORG_ID"
+  }'
 ```
 
-That image fallback still verifies the real Live Fork loop, but it takes the cold path and installs dependencies/Postgres work during session boot.
+The Daytona provider now:
 
-Then call `POST /sessions` with a real Git repository URL. The Daytona provider:
+1. loads the profile,
+2. resolves org GitHub App repository access when requested,
+3. resolves the configured app environment,
+4. creates a per-session Neon branch when the profile uses `data.primary.provider: neon`,
+5. creates a Daytona sandbox from the snapshot,
+6. clones the private repo and checks out the requested ref,
+7. writes session-specific env, including the fork branch `DATABASE_URL`,
+8. installs dependencies and runs profile setup commands,
+9. starts the session daemon,
+10. starts profile services,
+11. checks service health,
+12. returns the Daytona preview URL.
 
-1. creates an ephemeral public Daytona sandbox,
-2. clones the repo and checks out the requested ref,
-3. writes sandbox-local env with Postgres on `localhost:5432`,
-4. installs dependencies,
-5. starts the session daemon on port `8790`,
-6. starts sandbox-local Postgres,
-7. runs migrations and seed data,
-8. starts the API and Vite dev server,
-9. returns signed preview URLs for the app and internal daemon.
+The human opens the returned Daytona preview URL. Agents use the session daemon for commands, file IO, logs, diff export, and browser checks.
 
-The app and Playwright use `http://localhost:3000` inside the sandbox. The human opens the returned Daytona preview URL.
+### Target App Environments
+
+Target app database credentials are stored as org-owned encrypted credentials, not as normal WorkPowers process env. The control UI includes a small Ring of Beara Neon environment form for the current proof app. The underlying API is general enough for this v0 shape:
+
+```txt
+POST /app-environments/neon
+```
+
+The target app environment stores non-secret Neon identifiers: project id, parent branch id, database name, role name, and pooled/direct mode. The Neon API key is stored encrypted in `org_credentials` and resolved only when creating or deleting branches.
 
 ### Verified Daytona Runs
 
@@ -127,6 +168,18 @@ On 2026-04-29, the repeatable-session v0 was also verified against Daytona using
 - Playwright passed inside the Daytona sandbox after a non-breaking sandbox edit
 
 See [docs/planner-handoff.md](docs/planner-handoff.md) for findings and recommended next steps.
+
+On 2026-05-01, the production-shaped Ring of Beara path was verified against Daytona, GitHub App checkout, and Neon:
+
+- private repo cloned from `evanfuture/ringofbeara.com` using org GitHub App access
+- per-session Neon branch created from the configured parent branch
+- Astro/EmDash booted from the profile command on port `4321`
+- `/workpowers/fork-proof` rendered inherited parent data through the fork branch `DATABASE_URL`
+- an in-sandbox command mutated the fork marker to `fork-mutated`
+- the parent Neon branch still read `status: parent`
+- explicit stop deleted the Daytona sandbox and Neon branch
+
+See [docs/production-live-fork-v0.md](docs/production-live-fork-v0.md) for the detailed proof log.
 
 ## Control Plane API
 

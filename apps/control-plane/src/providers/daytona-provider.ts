@@ -1,13 +1,18 @@
 import type { CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams } from "@daytonaio/sdk";
 import { previewService, profileToEnv } from "../../../../packages/live-fork/src/profile.js";
 import { redactCommandResult, redactSecrets } from "../../../../packages/live-fork/src/redaction.js";
-import type { CommandRequest, CommandResult, FileWriteRequest, LiveForkBootPhase, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
+import type { CommandRequest, CommandResult, CreateTerminalRequest, FileWriteRequest, LiveForkBootPhase, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
 import {
+  daemonCreateTerminal,
   daemonGetDiff,
   daemonGetLogs,
+  daemonKillTerminal,
+  daemonOpenTerminalEventStream,
   daemonReadFile,
+  daemonResizeTerminal,
   daemonRunCommand,
   daemonRunPlaywright,
+  daemonWriteTerminal,
   daemonWriteFile
 } from "./daemon-client.js";
 import { emptyResult, type BootEventRecorder, type NormalizedCreateSessionRequest, type ProvisionedSession, type SandboxProvider } from "./provider.js";
@@ -101,6 +106,34 @@ function envFileCommand(env: Record<string, string>) {
 
 function serviceLogPath(name: string) {
   return `/tmp/workpowers-service-${name.replace(/[^a-z0-9_-]/gi, "-")}.log`;
+}
+
+function prepareWorkspaceOwnershipCommand() {
+  return [
+    "if id -u ubuntu >/dev/null 2>&1; then",
+    "  chown -R ubuntu:ubuntu .",
+    "elif id -u pwuser >/dev/null 2>&1; then",
+    "  chown -R pwuser:pwuser .",
+    "fi",
+    "git config --global --add safe.directory \"$PWD\""
+  ].join("\n");
+}
+
+function runAsWorkspaceUserCommand(command: string) {
+  const quotedCommand = shellQuote(command);
+  return [
+    "if id -u ubuntu >/dev/null 2>&1; then",
+    `  runuser -u ubuntu -- env HOME=/home/ubuntu XDG_CACHE_HOME=/tmp/workpowers-agent-cache XDG_CONFIG_HOME=/tmp/workpowers-agent-config XDG_DATA_HOME=/tmp/workpowers-agent-data sh -lc ${quotedCommand}`,
+    "elif id -u pwuser >/dev/null 2>&1; then",
+    `  runuser -u pwuser -- env HOME=/home/pwuser XDG_CACHE_HOME=/tmp/workpowers-agent-cache XDG_CONFIG_HOME=/tmp/workpowers-agent-config XDG_DATA_HOME=/tmp/workpowers-agent-data sh -lc ${quotedCommand}`,
+    "else",
+    `  sh -lc ${quotedCommand}`,
+    "fi"
+  ].join("\n");
+}
+
+function startServiceCommand(command: string, logPath: string) {
+  return runAsWorkspaceUserCommand(`nohup ${command} > ${shellQuote(logPath)} 2>&1 &`);
 }
 
 function configuredSnapshot(input: NormalizedCreateSessionRequest) {
@@ -234,12 +267,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
           envSecrets
         );
         await record("starting_daemon", "completed", "Session daemon is healthy");
+        await checkedCommand(sandbox, prepareWorkspaceOwnershipCommand(), repoDir, 120, undefined, envSecrets);
 
         for (const [name, service] of Object.entries(profile.services)) {
           await record("starting_service", "running", `Starting ${name}`);
           await checkedCommand(
             sandbox,
-            `nohup ${service.command} > ${shellQuote(serviceLogPath(name))} 2>&1 &`,
+            startServiceCommand(service.command, serviceLogPath(name)),
             repoDir,
             10,
             undefined,
@@ -309,11 +343,12 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       await checkedCommand(sandbox, `${pnpm} db:seed`, repoDir, 300);
       await record("seeding_data", "completed", "Sandbox data seeded");
       await checkedCommand(sandbox, `${pnpm} exec playwright install chromium`, repoDir, 600);
+      await checkedCommand(sandbox, prepareWorkspaceOwnershipCommand(), repoDir, 120);
       await record("starting_api", "running", "Starting API server");
-      await checkedCommand(sandbox, `nohup ${pnpm} dev:spike-api > /tmp/workpowers-api.log 2>&1 &`, repoDir, 10);
+      await checkedCommand(sandbox, startServiceCommand(`${pnpm} dev:spike-api`, "/tmp/workpowers-api.log"), repoDir, 10);
       await record("starting_api", "completed", "API server process started");
       await record("starting_frontend", "running", "Starting Vite frontend");
-      await checkedCommand(sandbox, `nohup ${pnpm} dev:spike > /tmp/workpowers-vite.log 2>&1 &`, repoDir, 10);
+      await checkedCommand(sandbox, startServiceCommand(`${pnpm} dev:spike`, "/tmp/workpowers-vite.log"), repoDir, 10);
       await record("starting_frontend", "completed", "Frontend process started");
       await record("checking_health", "running", "Checking API and preview health");
       await checkedCommand(
@@ -424,8 +459,28 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     return daemonWriteFile(session, input);
   }
 
+  async createTerminal(session: LiveForkSession, input: CreateTerminalRequest) {
+    return daemonCreateTerminal(session, input);
+  }
+
+  async writeTerminal(session: LiveForkSession, terminalId: string, data: string) {
+    return daemonWriteTerminal(session, terminalId, data);
+  }
+
+  async resizeTerminal(session: LiveForkSession, terminalId: string, cols: number, rows: number) {
+    return daemonResizeTerminal(session, terminalId, cols, rows);
+  }
+
+  async killTerminal(session: LiveForkSession, terminalId: string) {
+    return daemonKillTerminal(session, terminalId);
+  }
+
+  async openTerminalEventStream(session: LiveForkSession, terminalId: string, after?: number) {
+    return daemonOpenTerminalEventStream(session, terminalId, after);
+  }
+
   async stop(session: LiveForkSession) {
-    const sandbox = this.requireSandbox(session);
+    const sandbox = await this.resolveSandbox(session);
     await sandbox.stop(60).catch((error: unknown) => {
       if (!isMissingSandboxError(error)) throw error;
     });
@@ -434,12 +489,18 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     });
   }
 
-  private requireSandbox(session: LiveForkSession) {
+  private async resolveSandbox(session: LiveForkSession) {
     const sandbox = this.sandboxes.get(session.id);
-    if (!sandbox) {
+    if (sandbox) return sandbox;
+    if (!session.sandbox.sandboxId) {
       throw new Error(`No Daytona sandbox handle is registered for ${session.id}`);
     }
-    return sandbox;
+
+    const { Daytona } = await import("@daytonaio/sdk");
+    const daytona = new Daytona();
+    const recovered = await daytona.get(session.sandbox.sandboxId) as DaytonaSandbox;
+    this.sandboxes.set(session.id, recovered);
+    return recovered;
   }
 }
 

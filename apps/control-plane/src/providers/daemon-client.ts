@@ -1,5 +1,13 @@
 import { redactCommandResult, redactSecrets } from "../../../../packages/live-fork/src/redaction.js";
-import type { CommandRequest, CommandResult, FileReadResult, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
+import type {
+  CommandRequest,
+  CommandResult,
+  CreateTerminalRequest,
+  FileReadResult,
+  FileWriteRequest,
+  LiveForkSession,
+  TerminalSummary
+} from "../../../../packages/live-fork/src/types.js";
 
 function requireDaemonUrl(session: LiveForkSession) {
   const daemonUrl = session.internal?.daemonUrl;
@@ -70,4 +78,41 @@ export async function daemonWriteFile(session: LiveForkSession, input: FileWrite
     body: JSON.stringify(input)
   });
   return daemonReadFile(session, input.path);
+}
+
+export async function daemonCreateTerminal(session: LiveForkSession, input: CreateTerminalRequest) {
+  return requestJson<TerminalSummary>(`${requireDaemonUrl(session)}/terminals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
+export async function daemonWriteTerminal(session: LiveForkSession, terminalId: string, data: string) {
+  await requestJson<{ ok: true }>(`${requireDaemonUrl(session)}/terminals/${terminalId}/stdin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data })
+  });
+}
+
+export async function daemonResizeTerminal(session: LiveForkSession, terminalId: string, cols: number, rows: number) {
+  await requestJson<{ ok: true }>(`${requireDaemonUrl(session)}/terminals/${terminalId}/resize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cols, rows })
+  });
+}
+
+export async function daemonKillTerminal(session: LiveForkSession, terminalId: string) {
+  await requestJson<{ ok: true }>(`${requireDaemonUrl(session)}/terminals/${terminalId}/kill`, {
+    method: "POST"
+  });
+}
+
+export async function daemonOpenTerminalEventStream(session: LiveForkSession, terminalId: string, after?: number) {
+  const search = after ? `?after=${after}` : "";
+  const response = await fetch(`${requireDaemonUrl(session)}/terminals/${terminalId}/events${search}`);
+  if (!response.ok) throw new Error(`Daemon terminal stream failed (${response.status}): ${redactSecrets(await response.text())}`);
+  return response;
 }

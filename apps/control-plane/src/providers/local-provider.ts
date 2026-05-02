@@ -1,12 +1,17 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { CommandRequest, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
+import type { CommandRequest, CreateTerminalRequest, FileWriteRequest, LiveForkSession } from "../../../../packages/live-fork/src/types.js";
 import {
   daemonGetDiff,
   daemonGetLogs,
+  daemonCreateTerminal,
   daemonReadFile,
+  daemonKillTerminal,
+  daemonOpenTerminalEventStream,
+  daemonResizeTerminal,
   daemonRunCommand,
   daemonRunPlaywright,
+  daemonWriteTerminal,
   daemonWriteFile
 } from "./daemon-client.js";
 import { emptyResult, type BootEventRecorder, type NormalizedCreateSessionRequest, type ProvisionedSession, type SandboxProvider } from "./provider.js";
@@ -129,6 +134,26 @@ export class LocalSandboxProvider implements SandboxProvider {
 
   async writeFile(session: LiveForkSession, input: FileWriteRequest) {
     return daemonWriteFile(session, input);
+  }
+
+  async createTerminal(session: LiveForkSession, input: CreateTerminalRequest) {
+    return daemonCreateTerminal(session, input);
+  }
+
+  async writeTerminal(session: LiveForkSession, terminalId: string, data: string) {
+    return daemonWriteTerminal(session, terminalId, data);
+  }
+
+  async resizeTerminal(session: LiveForkSession, terminalId: string, cols: number, rows: number) {
+    return daemonResizeTerminal(session, terminalId, cols, rows);
+  }
+
+  async killTerminal(session: LiveForkSession, terminalId: string) {
+    return daemonKillTerminal(session, terminalId);
+  }
+
+  async openTerminalEventStream(session: LiveForkSession, terminalId: string, after?: number) {
+    return daemonOpenTerminalEventStream(session, terminalId, after);
   }
 
   async stop() {

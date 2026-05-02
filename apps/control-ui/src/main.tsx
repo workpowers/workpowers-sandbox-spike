@@ -1,5 +1,8 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal } from "@xterm/xterm";
 import {
   Activity,
   Braces,
@@ -11,9 +14,11 @@ import {
   Power,
   RefreshCcw,
   ServerCog,
+  Square,
   SquareTerminal
 } from "lucide-react";
-import type { CommandResult, LiveForkBootEvent, LiveForkSession } from "../../../packages/live-fork/src/types.js";
+import type { AgentRun, CommandResult, LiveForkBootEvent, LiveForkSession, TerminalEvent } from "../../../packages/live-fork/src/types.js";
+import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
 type SessionSummary = {
@@ -91,6 +96,8 @@ function App() {
   const [diff, setDiff] = useState("");
   const [playwright, setPlaywright] = useState<CommandResult | null>(null);
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState("Update the WorkPowers fork proof page copy and verify the page still renders.");
+  const [selectedRunId, setSelectedRunId] = useState("");
   const [neonProjectId, setNeonProjectId] = useState("");
   const [parentBranchId, setParentBranchId] = useState("");
   const [databaseName, setDatabaseName] = useState("");
@@ -105,6 +112,14 @@ function App() {
     () => sessions.find((session) => session.id === selectedId) ?? sessions[0],
     [selectedId, sessions]
   );
+  const agentRuns = selected?.agentRuns ?? [];
+  const selectedRun = useMemo(
+    () => agentRuns.find((run) => run.id === selectedRunId) ?? agentRuns[0],
+    [agentRuns, selectedRunId]
+  );
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   async function loadSessions() {
     const response = await api<{ sessions: LiveForkSession[] }>("/sessions");
@@ -122,6 +137,83 @@ function App() {
     }, 2500);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    setSelectedRunId((current) => {
+      if (current && agentRuns.some((run) => run.id === current)) return current;
+      const active = agentRuns.find((run) => ["starting", "running", "stopping"].includes(run.status));
+      return active?.id ?? agentRuns[0]?.id ?? "";
+    });
+  }, [selected?.id, agentRuns.length]);
+
+  useEffect(() => {
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    terminalRef.current?.dispose();
+    terminalRef.current = null;
+
+    if (!selected || !selectedRun || !terminalHostRef.current) return;
+
+    const terminal = new Terminal({
+      cursorBlink: true,
+      convertEol: true,
+      fontFamily: '"SFMono-Regular", Consolas, monospace',
+      fontSize: 12,
+      theme: {
+        background: "#15211e",
+        foreground: "#e9efe5",
+        cursor: "#f1c06a"
+      }
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.loadAddon(new WebLinksAddon());
+    terminal.open(terminalHostRef.current);
+    fitAddon.fit();
+    terminalRef.current = terminal;
+    terminal.writeln(`WorkPowers agent run ${selectedRun.id}`);
+    terminal.writeln(`status: ${selectedRun.status}`);
+    terminal.writeln("");
+
+    const source = new EventSource(`/control/sessions/${selected.id}/agent-runs/${selectedRun.id}/events`);
+    eventSourceRef.current = source;
+    source.addEventListener("terminal", (message) => {
+      const event = JSON.parse((message as MessageEvent).data) as TerminalEvent;
+      if (event.type === "output") terminal.write(event.data);
+      if (event.type === "exit") terminal.writeln(`\r\n[process exited ${event.exitCode ?? "signal"}]`);
+      if (event.type === "error") terminal.writeln(`\r\n[terminal error] ${event.message}`);
+    });
+    source.onerror = () => undefined;
+
+    const dataDisposable = terminal.onData((data) => {
+      if (!["starting", "running"].includes(selectedRun.status)) return;
+      api(`/sessions/${selected.id}/agent-runs/${selectedRun.id}/stdin`, {
+        method: "POST",
+        body: JSON.stringify({ data })
+      }).catch((stdinError: Error) => setError(stdinError.message));
+    });
+
+    const resize = () => {
+      fitAddon.fit();
+      const dimensions = fitAddon.proposeDimensions();
+      if (!dimensions) return;
+      api(`/sessions/${selected.id}/agent-runs/${selectedRun.id}/resize`, {
+        method: "POST",
+        body: JSON.stringify(dimensions)
+      }).catch(() => undefined);
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(terminalHostRef.current);
+    window.setTimeout(resize, 0);
+
+    return () => {
+      observer.disconnect();
+      dataDisposable.dispose();
+      source.close();
+      terminal.dispose();
+    };
+  }, [selected?.id, selectedRun?.id]);
 
   async function runAction<T>(label: string, action: () => Promise<T>) {
     setBusy(label);
@@ -199,6 +291,32 @@ function App() {
       })
     );
     if (result) setCommandResult(result);
+  }
+
+  async function startAgent(event: FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    const run = await runAction("agent", () =>
+      api<AgentRun>(`/sessions/${selected.id}/agent-runs`, {
+        method: "POST",
+        body: JSON.stringify({ harness: "claude-code", prompt: agentPrompt })
+      })
+    );
+    if (run) {
+      setSelectedRunId(run.id);
+      await loadSessions();
+    }
+  }
+
+  async function stopAgent() {
+    if (!selected || !selectedRun) return;
+    const run = await runAction("agent-stop", () =>
+      api<AgentRun>(`/sessions/${selected.id}/agent-runs/${selectedRun.id}/stop`, { method: "POST" })
+    );
+    if (run) {
+      setSelectedRunId(run.id);
+      await loadSessions();
+    }
   }
 
   async function loadLogs() {
@@ -391,6 +509,66 @@ function App() {
             ) : null}
           </div>
           {selected?.app.previewUrl ? <iframe title="Live fork preview" src={selected.app.previewUrl} /> : null}
+        </section>
+
+        <section className="tool-panel agent-panel">
+          <div className="agent-header">
+            <PanelTitle icon={<SquareTerminal size={18} />} title="Agent Run" />
+            <div className={`status-badge ${selectedRun?.status ?? "empty"}`}>
+              {selectedRun?.status ?? "idle"}
+            </div>
+          </div>
+
+          <form className="agent-form" onSubmit={startAgent}>
+            <textarea
+              value={agentPrompt}
+              onChange={(event) => setAgentPrompt(event.target.value)}
+              spellCheck={false}
+              disabled={!selected || selected.sandbox.status !== "running" || Boolean(busy)}
+            />
+            <button type="submit" disabled={!selected || selected.sandbox.status !== "running" || Boolean(busy) || !agentPrompt.trim()}>
+              {busy === "agent" ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
+              Start Agent
+            </button>
+            <button type="button" onClick={stopAgent} disabled={!selectedRun || Boolean(busy) || !["starting", "running", "stopping"].includes(selectedRun.status)}>
+              {busy === "agent-stop" ? <LoaderCircle size={17} className="spin" /> : <Square size={17} />}
+              Stop Agent
+            </button>
+          </form>
+
+          {agentRuns.length ? (
+            <nav className="agent-run-list" aria-label="Agent runs">
+              {agentRuns.map((run) => (
+                <button
+                  key={run.id}
+                  className={run.id === selectedRun?.id ? "selected" : ""}
+                  onClick={() => setSelectedRunId(run.id)}
+                >
+                  <span>{run.id}</span>
+                  <small>{run.status}</small>
+                </button>
+              ))}
+            </nav>
+          ) : null}
+
+          <div className="agent-terminal" ref={terminalHostRef}>
+            {!selectedRun ? <span>No agent run selected.</span> : null}
+          </div>
+
+          <div className="agent-actions">
+            <button onClick={loadLogs} disabled={!selected || Boolean(busy)}>
+              <RefreshCcw size={17} />
+              Logs
+            </button>
+            <button onClick={runPlaywright} disabled={!selected || Boolean(busy)}>
+              <Play size={17} />
+              Playwright
+            </button>
+            <button onClick={loadDiff} disabled={!selected || Boolean(busy)}>
+              <GitCompareArrows size={17} />
+              Diff
+            </button>
+          </div>
         </section>
 
         <section className="tool-grid">

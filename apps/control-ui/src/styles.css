@@ -103,6 +103,7 @@ button:disabled {
 .session-form input,
 .file-row input,
 .environment-form input,
+.agent-form textarea,
 .file-panel textarea {
   width: 100%;
   color: #171c1a;
@@ -120,6 +121,8 @@ button:disabled {
 
 .session-form button,
 .environment-form button,
+.agent-form button,
+.agent-actions button,
 .action-stack button,
 .file-row button {
   display: inline-flex;
@@ -327,6 +330,95 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.agent-panel {
+  margin-bottom: 16px;
+}
+
+.agent-header,
+.agent-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.agent-header .panel-title {
+  margin-bottom: 0;
+}
+
+.agent-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px 126px;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.agent-form textarea {
+  min-height: 72px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.agent-run-list {
+  display: flex;
+  gap: 8px;
+  overflow: auto;
+  margin-top: 10px;
+  padding-bottom: 2px;
+}
+
+.agent-run-list button {
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+  min-height: 46px;
+  padding: 7px 10px;
+  color: #172622;
+  background: #f7f2e6;
+  border: 1px solid #d1cbbd;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.agent-run-list button.selected {
+  border-color: #3f806f;
+  box-shadow: inset 0 0 0 1px #3f806f;
+}
+
+.agent-run-list small {
+  color: #5a625d;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.agent-terminal {
+  overflow: hidden;
+  height: 360px;
+  margin-top: 10px;
+  padding: 8px;
+  color: #e9efe5;
+  background: #15211e;
+  border-radius: 6px;
+}
+
+.agent-terminal > span {
+  display: block;
+  padding: 10px;
+  color: #9fafaa;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+}
+
+.agent-actions {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+
+.agent-actions button {
+  min-width: 118px;
+}
+
 .preview-toolbar {
   display: flex;
   justify-content: space-between;
@@ -464,8 +556,15 @@ button:disabled {
   }
 
   .environment-panel,
-  .environment-form {
+  .environment-form,
+  .agent-form {
     grid-template-columns: 1fr;
+  }
+
+  .agent-header,
+  .agent-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

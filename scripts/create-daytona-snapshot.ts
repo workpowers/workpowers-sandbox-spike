@@ -11,8 +11,8 @@ const image = Image.base("mcr.microsoft.com/playwright:v1.59.1-noble")
   .runCommands(
     [
       "apt-get update",
-      "apt-get install -y --no-install-recommends ca-certificates curl git postgresql postgresql-client",
-      "npm install -g pnpm@10.29.1",
+      "apt-get install -y --no-install-recommends ca-certificates curl g++ git make postgresql postgresql-client python3",
+      "npm install -g pnpm@10.29.1 @anthropic-ai/claude-code@2.1.126",
       "pnpm --version",
       "rm -rf /var/lib/apt/lists/*"
     ].join(" && ")

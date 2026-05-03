@@ -6,9 +6,11 @@ import type {
   CommandRequest,
   CommandResult,
   CreateSessionRequest,
+  CreateTerminalRequest,
   LiveForkDataMode,
   LiveForkResourceProfile,
-  LiveForkSession
+  LiveForkSession,
+  TerminalSummary
 } from "../../../../packages/live-fork/src/types.js";
 import type { LiveForkProfile } from "../../../../packages/live-fork/src/profile.js";
 
@@ -58,6 +60,11 @@ export interface SandboxProvider {
   writeFile(session: LiveForkSession, input: FileWriteRequest): Promise<FileReadResult>;
   getLogs(session: LiveForkSession): Promise<string[]>;
   getDiff(session: LiveForkSession): Promise<string>;
+  createTerminal(session: LiveForkSession, input: CreateTerminalRequest): Promise<TerminalSummary>;
+  writeTerminal(session: LiveForkSession, terminalId: string, data: string): Promise<void>;
+  resizeTerminal(session: LiveForkSession, terminalId: string, cols: number, rows: number): Promise<void>;
+  killTerminal(session: LiveForkSession, terminalId: string): Promise<void>;
+  openTerminalEventStream(session: LiveForkSession, terminalId: string, after?: number): Promise<Response>;
   stop(session: LiveForkSession): Promise<void>;
 }
 
@@ -123,6 +130,7 @@ export function createStartingSession(
     resourceProfile: provider.resourceProfile(),
     artifacts: {
       logs: []
-    }
+    },
+    agentRuns: []
   };
 }

@@ -7,9 +7,10 @@ import { GITHUB_APP_CREDENTIAL_REF, assertOrganizationMembership, resolveGitHubR
 import { DrizzleLiveForkConfigStore, type ResolvedLiveForkAppEnvironment } from "../../spike-app/server/live-fork-config.js";
 import { loadLiveForkProfile, profileRepoUrl, profileToEnv } from "../../../packages/live-fork/src/profile.js";
 import { redactCommandResult, redactSecrets } from "../../../packages/live-fork/src/redaction.js";
-import { commandSchema, createSessionSchema, filePathSchema, fileWriteSchema } from "../../../packages/live-fork/src/schemas.js";
+import { commandSchema, createAgentRunSchema, createSessionSchema, filePathSchema, fileWriteSchema, terminalResizeSchema, terminalStdinSchema } from "../../../packages/live-fork/src/schemas.js";
 import { LiveForkSessionStore, redactSession } from "../../../packages/live-fork/src/session-store.js";
-import type { LiveForkSession } from "../../../packages/live-fork/src/types.js";
+import type { AgentRun, LiveForkSession, TerminalEvent } from "../../../packages/live-fork/src/types.js";
+import { resolveAgentHarness } from "./agent-harnesses.js";
 import { createProvider } from "./providers/index.js";
 import { NeonBranchProvider, type NeonBranch } from "./providers/neon-provider.js";
 import { createStartingSession, type BootEventRecorder, type NormalizedCreateSessionRequest } from "./providers/provider.js";
@@ -78,6 +79,100 @@ async function recordLifecycleEvent(sessionId: string, message: string) {
     status: "completed",
     message
   });
+}
+
+function publicAgentRuns(session: LiveForkSession) {
+  return session.agentRuns ?? [];
+}
+
+function findAgentRun(session: LiveForkSession, runId: string) {
+  return publicAgentRuns(session).find((run) => run.id === runId);
+}
+
+async function updateAgentRunFromTerminalEvent(sessionId: string, runId: string, event: TerminalEvent) {
+  if (event.type !== "exit" && event.type !== "error") return;
+  const currentSession = store.get(sessionId);
+  if (!currentSession) return;
+  const currentRun = findAgentRun(currentSession, runId);
+  if (currentRun?.status === "stopped") return;
+
+  const patch: Partial<AgentRun> = {
+    completedAt: new Date().toISOString()
+  };
+
+  if (event.type === "exit") {
+    patch.exitCode = event.exitCode;
+    patch.status = event.exitCode === 0 ? "completed" : "failed";
+  } else {
+    patch.status = "failed";
+    patch.error = event.message;
+  }
+
+  await store.updateAgentRun(sessionId, runId, patch);
+}
+
+async function consumeTerminalEventStream(
+  stream: Response,
+  onEvent: (event: TerminalEvent) => void | Promise<void>,
+  forward?: express.Response
+) {
+  if (!stream.body) throw new Error("Daemon terminal stream did not include a body.");
+  const reader = stream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    if (forward) forward.write(chunk);
+    buffer += chunk;
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+      if (dataLine) {
+        const event = JSON.parse(dataLine.slice(6)) as TerminalEvent;
+        await onEvent(event);
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+function watchAgentRunExit(sessionId: string, runId: string, terminalId: string) {
+  void (async () => {
+    try {
+      const session = store.get(sessionId);
+      if (!session) return;
+      const stream = await provider.openTerminalEventStream(session, terminalId);
+      await consumeTerminalEventStream(stream, async (event) => {
+        await updateAgentRunFromTerminalEvent(sessionId, runId, event);
+      });
+    } catch (error) {
+      await store.updateAgentRun(sessionId, runId, {
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  })();
+}
+
+async function stopActiveAgentRuns(session: LiveForkSession) {
+  for (const run of session.agentRuns ?? []) {
+    if (!["starting", "running", "stopping"].includes(run.status)) continue;
+    await store.updateAgentRun(session.id, run.id, { status: "stopping" });
+    await provider.killTerminal(session, run.terminalId).catch(async (error: unknown) => {
+      await store.updateAgentRun(session.id, run.id, {
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
 }
 
 async function provisionInBackground(session: LiveForkSession, input: NormalizedCreateSessionRequest) {
@@ -442,6 +537,143 @@ app.put("/sessions/:id/files", async (req, res, next) => {
   }
 });
 
+app.post("/sessions/:id/agent-runs", async (req, res, next) => {
+  try {
+    const session = await requireSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
+
+    const input = createAgentRunSchema.parse(req.body);
+    const runId = `arun_${nanoid(10)}`;
+    const now = new Date().toISOString();
+    const startingRun: AgentRun = {
+      id: runId,
+      sessionId: session.id,
+      harness: input.harness,
+      terminalId: "",
+      status: "starting",
+      prompt: input.prompt,
+      createdAt: now
+    };
+    const adapter = resolveAgentHarness(input.harness);
+    const env = adapter.envForRun(startingRun);
+    const terminal = await provider.createTerminal(session, {
+      command: adapter.command,
+      args: adapter.argsForPrompt(input.prompt, startingRun),
+      cwd: ".",
+      env,
+      cols: 110,
+      rows: 30,
+      kind: "agent"
+    });
+
+    const run: AgentRun = {
+      ...startingRun,
+      terminalId: terminal.id,
+      status: "running",
+      startedAt: now
+    };
+
+    await store.appendAgentRun(session.id, run);
+    await recordLifecycleEvent(session.id, `Started ${adapter.label} agent run ${run.id}`);
+    watchAgentRunExit(session.id, run.id, terminal.id);
+    return res.status(201).json({ ...run, prompt: redactSecrets(run.prompt) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/sessions/:id/agent-runs", async (req, res) => {
+  const session = await requireSession(req.params.id);
+  if (!session) return res.status(404).json({ error: "session_not_found" });
+  return res.json({ agentRuns: publicAgentRuns(session) });
+});
+
+app.get("/sessions/:id/agent-runs/:runId", async (req, res) => {
+  const session = await requireSession(req.params.id);
+  if (!session) return res.status(404).json({ error: "session_not_found" });
+  const run = findAgentRun(session, req.params.runId);
+  if (!run) return res.status(404).json({ error: "agent_run_not_found" });
+  return res.json(run);
+});
+
+app.post("/sessions/:id/agent-runs/:runId/stdin", async (req, res, next) => {
+  try {
+    const session = await requireSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
+    const run = findAgentRun(session, req.params.runId);
+    if (!run) return res.status(404).json({ error: "agent_run_not_found" });
+
+    const input = terminalStdinSchema.parse(req.body);
+    await provider.writeTerminal(session, run.terminalId, input.data);
+    return res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/sessions/:id/agent-runs/:runId/resize", async (req, res, next) => {
+  try {
+    const session = await requireSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
+    const run = findAgentRun(session, req.params.runId);
+    if (!run) return res.status(404).json({ error: "agent_run_not_found" });
+
+    const input = terminalResizeSchema.parse(req.body);
+    await provider.resizeTerminal(session, run.terminalId, input.cols, input.rows);
+    return res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/sessions/:id/agent-runs/:runId/stop", async (req, res, next) => {
+  try {
+    const session = await requireSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    if (session.sandbox.status !== "running") return res.status(409).json({ error: "session_not_ready" });
+    const run = findAgentRun(session, req.params.runId);
+    if (!run) return res.status(404).json({ error: "agent_run_not_found" });
+
+    await store.updateAgentRun(session.id, run.id, { status: "stopping" });
+    await provider.killTerminal(session, run.terminalId);
+    const stopped = await store.updateAgentRun(session.id, run.id, {
+      status: "stopped",
+      completedAt: new Date().toISOString()
+    });
+    return res.json(findAgentRun(stopped ?? session, run.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/sessions/:id/agent-runs/:runId/events", async (req, res, next) => {
+  try {
+    const session = await requireSession(req.params.id);
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    const run = findAgentRun(session, req.params.runId);
+    if (!run) return res.status(404).json({ error: "agent_run_not_found" });
+
+    const stream = await provider.openTerminalEventStream(session, run.terminalId, Number(req.query.after ?? 0));
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+
+    await consumeTerminalEventStream(stream, async (event) => {
+      await updateAgentRunFromTerminalEvent(session.id, run.id, event);
+    }, res);
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) return next(error);
+    res.end();
+  }
+});
+
 app.post("/sessions/:id/stop", async (req, res, next) => {
   try {
     const session = await requireSession(req.params.id, false);
@@ -451,6 +683,7 @@ app.post("/sessions/:id/stop", async (req, res, next) => {
     await store.recordBootPhase(session.id, "cleanup", "running", "Stopping runtime and cleaning up data branch");
     let cleanupError: unknown;
     try {
+      await stopActiveAgentRuns(session);
       await provider.stop(session);
     } catch (error) {
       cleanupError = error;

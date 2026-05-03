@@ -39,3 +39,17 @@ export const fileWriteSchema = z.object({
   path: filePathSchema,
   content: z.string()
 });
+
+export const createAgentRunSchema = z.object({
+  harness: z.literal("claude-code").default("claude-code"),
+  prompt: z.string().trim().min(1).max(20_000)
+});
+
+export const terminalStdinSchema = z.object({
+  data: z.string().max(200_000)
+});
+
+export const terminalResizeSchema = z.object({
+  cols: z.number().int().min(20).max(500),
+  rows: z.number().int().min(5).max(200)
+});

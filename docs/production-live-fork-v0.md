@@ -134,3 +134,16 @@ Current finding on 2026-04-30: the snapshot exists and is active with 2 CPU, 4 G
 - `/workpowers/fork-proof` then rendered the fork mutation.
 - The local Ring parent branch still read `status: parent` from `ep-crimson-art-ane5o3ml-pooler.c-6.us-east-1.aws.neon.tech`.
 - Explicit stop deleted Neon branch `br-noisy-heart-an70h5iz`.
+
+## Verified Claude Code AgentRun On 2026-05-02
+
+- The Daytona snapshot `workpowers-daytona-node-playwright-postgres` was rebuilt with `node-pty` native build dependencies and `@anthropic-ai/claude-code@2.1.126`, then verified active.
+- Session `sess_km-KEk3GfA` loaded `profiles/ringofbeara.workpowers.livefork.yml`, cloned `evanfuture/ringofbeara.com`, and booted Daytona sandbox `796f949d-36a5-4a2b-8c89-ef9b69589252`.
+- The session created Neon branch `br-weathered-frost-anqcccrg` with endpoint `ep-bitter-unit-anxw2ovh`.
+- The session daemon started in the sandbox and hosted PTY-backed Claude Code runs through the control-plane `AgentRun` API.
+- AgentRun `arun_vo2ePfOcKQ` launched Claude Code from `ANTHROPIC_API_KEY` with `--output-format stream-json --verbose`, streamed terminal events, edited `src/pages/workpowers/fork-proof.astro`, and exited `0`.
+- Claude Code changed the proof page heading from `WorkPowers Fork Proof` to `WorkPowers Live Fork Proof`. Its `astro check` invocation completed but reported 21 pre-existing type errors in unrelated Ring pages; `src/pages/workpowers/fork-proof.astro` produced no errors.
+- The first run also generated collateral changes in `emdash-env.d.ts` and `pnpm-lock.yaml`. AgentRun `arun_UOs4lReQid` cleaned the result so the final diff contained only the intended proof-page heading change.
+- `POST /sessions/sess_km-KEk3GfA/playwright` passed with exit code `0`, returning page title `Ring of Beara`.
+- `GET /sessions/sess_km-KEk3GfA/diff` returned the expected single-file diff after cleanup.
+- Explicit stop marked the Daytona sandbox stopped and deleted Neon branch `br-weathered-frost-anqcccrg`.

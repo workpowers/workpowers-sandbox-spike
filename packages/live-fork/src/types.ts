@@ -2,6 +2,58 @@ export type SandboxProviderName = "daytona" | "local";
 
 export type LiveForkSessionStatus = "starting" | "running" | "stopped" | "failed";
 
+export type AgentHarnessId = "claude-code";
+
+export type AgentRunStatus =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "completed"
+  | "failed"
+  | "stopped";
+
+export type AgentRun = {
+  id: string;
+  sessionId: string;
+  harness: AgentHarnessId;
+  terminalId: string;
+  status: AgentRunStatus;
+  prompt: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  exitCode?: number | null;
+  error?: string;
+};
+
+export type TerminalKind = "shell" | "agent";
+
+export type CreateTerminalRequest = {
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  cols?: number;
+  rows?: number;
+  kind?: TerminalKind;
+};
+
+export type TerminalEvent =
+  | { seq: number; type: "output"; data: string; timestamp: string }
+  | { seq: number; type: "exit"; exitCode: number | null; signal?: string; timestamp: string }
+  | { seq: number; type: "error"; message: string; timestamp: string };
+
+export type TerminalSummary = {
+  id: string;
+  kind: TerminalKind;
+  status: "running" | "exited";
+  cwd: string;
+  command: string;
+  pid?: number;
+  exitCode?: number | null;
+  createdAt: string;
+};
+
 export type LiveForkDataMode =
   | "local_seed"
   | "curated_seed"
@@ -95,6 +147,7 @@ export type LiveForkSession = {
     screenshots?: string[];
     playwrightTrace?: string;
   };
+  agentRuns?: AgentRun[];
   internal?: {
     workdir?: string;
     daemonUrl?: string;

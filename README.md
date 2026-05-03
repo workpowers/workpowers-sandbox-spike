@@ -194,10 +194,17 @@ GET  /sessions/:id/logs
 GET  /sessions/:id/diff
 GET  /sessions/:id/files?path=...
 PUT  /sessions/:id/files
+POST /sessions/:id/agent-runs
+GET  /sessions/:id/agent-runs
+GET  /sessions/:id/agent-runs/:runId
+POST /sessions/:id/agent-runs/:runId/stdin
+POST /sessions/:id/agent-runs/:runId/resize
+POST /sessions/:id/agent-runs/:runId/stop
+GET  /sessions/:id/agent-runs/:runId/events
 POST /sessions/:id/stop
 ```
 
-Session records are persisted to `.workpowers/sessions.json` and redacted before public responses. Preview tokens and daemon URLs stay internal.
+Session records and AgentRun records are persisted to `.workpowers/sessions.json` and redacted before public responses. Preview tokens, daemon URLs, GitHub tokens, Neon credentials, and Claude Code harness credentials stay internal.
 
 ## Session Daemon API
 
@@ -211,6 +218,12 @@ GET  /read-file
 POST /start-process
 POST /stop-process
 POST /run-playwright
+POST /terminals
+GET  /terminals/:id
+GET  /terminals/:id/events
+POST /terminals/:id/stdin
+POST /terminals/:id/resize
+POST /terminals/:id/kill
 ```
 
 ## Template/Warm Pool Notes

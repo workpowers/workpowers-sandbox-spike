@@ -158,6 +158,36 @@ describe("live fork session primitives", () => {
     expect(raw).toContain("[REDACTED]");
   });
 
+  it("persists agent runs with harness secrets redacted", async () => {
+    const secret = "sk-ant-api03-test-secret-value";
+    const previous = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = secret;
+    const filePath = await storePath();
+    const writer = new LiveForkSessionStore({ filePath });
+    try {
+      await writer.set(session());
+
+      await writer.appendAgentRun("sess_test", {
+        id: "arun_test",
+        sessionId: "sess_test",
+        harness: "claude-code",
+        terminalId: "term_test",
+        status: "running",
+        prompt: `Use ${secret} nowhere.`,
+        createdAt: new Date(0).toISOString(),
+        startedAt: new Date(0).toISOString(),
+        error: `Failed with ${secret}`
+      });
+
+      const raw = await readFile(filePath, "utf8");
+      expect(raw).not.toContain(secret);
+      expect(raw).toContain("[REDACTED]");
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous;
+    }
+  });
+
   it("records boot events in order and updates the active phase", async () => {
     const store = new LiveForkSessionStore({ persist: false });
     await store.set(session({ boot: { phase: "creating_sandbox", events: [] } }));

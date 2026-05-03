@@ -10,10 +10,20 @@ const AUTH_HEADER_PATTERN = /\b(Bearer|token)\s+[A-Za-z0-9._\-]{20,}/gi;
 const POSTGRES_URL_PATTERN = /\b(postgres(?:ql)?:\/\/[^:\s/@]+:)([^@\s]+)(@[^?\s]+(?:\?[^\s]*)?)/gi;
 const DATABASE_URL_ASSIGNMENT_PATTERN = /\b(DATABASE_URL=)([^\s]+)/gi;
 
+function processEnvSecretValues() {
+  if (typeof process === "undefined") return [];
+  return [
+    process.env.ANTHROPIC_API_KEY,
+    process.env.CLAUDE_CODE_API_KEY,
+    process.env.DAYTONA_API_KEY,
+    process.env.WORKPOWERS_SECRET_ENCRYPTION_KEY
+  ].filter((value): value is string => Boolean(value));
+}
+
 export function redactSecrets(value: string, extraSecrets: string[] = []) {
   let redacted = value;
 
-  for (const secret of extraSecrets.filter(Boolean)) {
+  for (const secret of [...processEnvSecretValues(), ...extraSecrets].filter(Boolean)) {
     redacted = redacted.split(secret).join("[REDACTED]");
   }
 

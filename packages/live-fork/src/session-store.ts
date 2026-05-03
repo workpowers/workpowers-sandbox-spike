@@ -5,6 +5,7 @@ import type {
   LiveForkBootEvent,
   LiveForkBootEventStatus,
   LiveForkBootPhase,
+  AgentRun,
   LiveForkSession
 } from "./types.js";
 import { redactSecrets } from "./redaction.js";
@@ -123,6 +124,25 @@ export class LiveForkSessionStore {
     });
   }
 
+  async appendAgentRun(id: string, run: AgentRun) {
+    const current = this.sessions.get(id);
+    if (!current) return undefined;
+    return this.update(id, {
+      agentRuns: [...(current.agentRuns ?? []), redactAgentRun(run)]
+    });
+  }
+
+  async updateAgentRun(id: string, runId: string, patch: Partial<AgentRun>) {
+    const current = this.sessions.get(id);
+    if (!current) return undefined;
+
+    const nextRuns = (current.agentRuns ?? []).map((run) =>
+      run.id === runId ? redactAgentRun({ ...run, ...patch }) : run
+    );
+
+    return this.update(id, { agentRuns: nextRuns });
+  }
+
   async recordBootPhase(
     id: string,
     phase: LiveForkBootPhase,
@@ -216,6 +236,15 @@ function redactSessionSecrets<T extends Omit<LiveForkSession, "internal"> | Live
       ...session.artifacts,
       gitDiff: session.artifacts.gitDiff ? redactSecrets(session.artifacts.gitDiff) : undefined,
       logs: session.artifacts.logs?.map((log) => redactSecrets(log))
-    }
+    },
+    agentRuns: session.agentRuns?.map(redactAgentRun)
+  };
+}
+
+function redactAgentRun(run: AgentRun): AgentRun {
+  return {
+    ...run,
+    prompt: redactSecrets(run.prompt),
+    error: run.error ? redactSecrets(run.error) : undefined
   };
 }
